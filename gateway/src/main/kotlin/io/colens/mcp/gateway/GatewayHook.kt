@@ -13,6 +13,7 @@ import io.colens.mcp.common.McpServer
 import io.colens.mcp.common.ToolRegistry
 import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.put
+import io.colens.mcp.gateway.licensing.TrialWatchdog
 import io.colens.mcp.gateway.tools.DataTools
 import io.colens.mcp.gateway.tools.PerspectiveTools
 import io.colens.mcp.gateway.tools.ProjectTools
@@ -44,6 +45,8 @@ class GatewayHook : AbstractGatewayModuleHook() {
     @Volatile private var fullServer: McpServer? = null
 
     @Volatile private var readOnlyServer: McpServer? = null
+
+    @Volatile private var trialWatchdog: TrialWatchdog? = null
 
     override fun setup(context: GatewayContext) {
         this.context = context
@@ -79,9 +82,16 @@ class GatewayHook : AbstractGatewayModuleHook() {
             registry.readOnlyView().size,
             Constants.SHORT_MODULE_ID,
         )
+
+        // Opt-in, and only on a gateway actually running a trial. This works at all because
+        // isFreeModule() below keeps this hook running while the platform trial is expired — a
+        // demo-limited module would be shut down at the exact moment it needed to act.
+        trialWatchdog = TrialWatchdog.createIfEnabled(context, logger)?.also { it.start() }
     }
 
     override fun shutdown() {
+        trialWatchdog?.stop()
+        trialWatchdog = null
         fullServer = null
         readOnlyServer = null
         logger.info("Ignition MCP gateway hook shut down.")
@@ -101,7 +111,8 @@ class GatewayHook : AbstractGatewayModuleHook() {
         // AllOf by default and so admits any valid token. Net effect:
         //
         //   any valid API token                    -> the 14 read-only tools
-        //   token with gateway write permission    -> all 16, including tag writes and run_script
+        //   token with gateway write permission    -> all 17, including tag writes, run_script
+        //                                             and reset_trial
         mountMcpRoute(routes, "/mcp", ApiTokenManager.TOKEN_WRITE) { fullServer }
         mountMcpRoute(routes, "/mcp-readonly", ApiTokenManager.TOKEN_ACCESS) { readOnlyServer }
 

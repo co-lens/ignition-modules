@@ -9,6 +9,7 @@ import io.colens.mcp.common.Tool
 import io.colens.mcp.common.jsonArrayOf
 import io.colens.mcp.common.jsonArrayOfStrings
 import io.colens.mcp.common.jsonObject
+import io.colens.mcp.common.optBoolean
 import io.colens.mcp.common.optInt
 import io.colens.mcp.common.optString
 import io.colens.mcp.common.put
@@ -16,9 +17,13 @@ import io.colens.mcp.common.requireString
 import io.colens.mcp.common.schema
 import io.colens.mcp.common.stringList
 import io.colens.mcp.common.toJsonValue
+import io.colens.mcp.gateway.licensing.TrialResetter
+import io.colens.mcp.gateway.licensing.TrialWatchdog
 import java.time.Instant
 
 class SystemTools(private val context: GatewayContext) {
+
+    private val trial = TrialResetter(context)
 
     fun tools(): List<Tool> = listOf(
         gatewayInfo(),
@@ -26,6 +31,7 @@ class SystemTools(private val context: GatewayContext) {
         queryLogs(),
         listActiveAlarms(),
         runScript(),
+        resetTrial(),
     )
 
     private fun gatewayInfo() = Tool(
@@ -43,6 +49,11 @@ class SystemTools(private val context: GatewayContext) {
                 put("demoTimeRemaining", runCatching {
                     context.licenseManager?.demoTimeRemaining
                 }.getOrNull())
+                // Enough for a caller seeing demoTimeRemaining at 0 to conclude reset_trial is the
+                // fix, and for a human to see why a gateway has been up for days on a 2-hour trial.
+                put("licenseMode", trial.licenseMode()?.name)
+                put("trialExpired", trial.trialExpired())
+                put("trialWatchdog", TrialWatchdog.enabled())
                 put("redundancyRole", runCatching {
                     context.redundancyManager?.currentState?.toString()
                 }.getOrNull())
@@ -215,6 +226,38 @@ class SystemTools(private val context: GatewayContext) {
             jsonObject {
                 put("project", project)
                 put("result", toJsonValue(locals.__finditem__("result")?.toString()))
+            }
+        },
+    )
+
+    private fun resetTrial() = Tool(
+        name = "reset_trial",
+        title = "Reset the gateway trial timer",
+        description = "Restarts the gateway's two-hour trial countdown — the same action as the " +
+            "'Reset Trial' button on the gateway home page. By default this only works once the " +
+            "trial has actually expired, which is the rule Ignition itself enforces; pass " +
+            "force=true to top the timer up mid-session. Refused on an activated gateway, where " +
+            "there is no trial to reset. Use this when gateway_info shows demoTimeRemaining at 0 " +
+            "and tags, history or Perspective have stopped working.",
+        inputSchema = schema {
+            boolean(
+                "force",
+                "Reset even if the trial hasn't expired yet, topping the timer back up to two hours.",
+                default = false,
+            )
+        },
+        readOnly = false,
+        destructive = true,
+        handler = { args ->
+            val outcome = trial.reset(force = args.optBoolean("force", false))
+            jsonObject {
+                put("reset", outcome.reset)
+                put("reason", outcome.reason)
+                put("forced", outcome.forced)
+                put("licenseMode", outcome.licenseMode)
+                put("trialExpired", outcome.trialExpired)
+                put("secondsBefore", outcome.secondsBefore)
+                put("secondsAfter", outcome.secondsAfter)
             }
         },
     )
