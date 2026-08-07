@@ -12,6 +12,6 @@ java {
 dependencies {
     compileOnly(libs.bundles.gateway)
     compileOnly(libs.bundles.perspectiveGateway)
-    compileOnly(project(":common"))
+    compileOnly(project(":modules:mcp:common"))
     modlImplementation(libs.kotlin.stdlib)
 }

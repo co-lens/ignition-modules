@@ -6,7 +6,7 @@ pluginManagement {
     }
 }
 
-rootProject.name = "mcp-ign"
+rootProject.name = "ignition-modules"
 
 dependencyResolutionManagement {
     repositories {
@@ -16,4 +16,12 @@ dependencyResolutionManagement {
     }
 }
 
-include(":common", ":gateway", ":designer")
+// One block per module. A module's scope subprojects MUST be descendants of the project that
+// applies io.ia.sdk.modl: the plugin only wires projects inside its own `allprojects` set, so a
+// scope project outside that subtree is silently ignored rather than reported as an error.
+include(
+    ":modules:mcp",
+    ":modules:mcp:common",
+    ":modules:mcp:gateway",
+    ":modules:mcp:designer",
+)
