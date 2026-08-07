@@ -14,20 +14,36 @@ it. Budget ten minutes.
 You need an Ignition 8.3 gateway you can restart, and an MCP client — the examples use
 [Claude Code](https://claude.com/claude-code), but any client that speaks Streamable HTTP works.
 
-### 1. Build the module
+### 1. Get the module
 
-There is no published release yet, so build it:
+Download the signed `.modl` from the
+[latest release](https://github.com/co-lens/ignition-modules/releases/latest). Releases are tagged
+`mcp-v<version>` and the asset is `Ignition-MCP-<version>.modl`, with a `.sha256` beside it.
 
 ```bash
-git clone https://github.com/co-lens/mcp-ignition.git
-cd mcp-ignition
-./gradlew build
+gh release download --repo co-lens/ignition-modules --pattern 'Ignition-MCP-*'
+sha256sum -c Ignition-MCP-*.modl.sha256
 ```
 
-That produces `build/Ignition-MCP.unsigned.modl`. **Sign it if you can** — an unsigned module has
-no certificate fingerprint for the gateway to remember, so 8.3 re-prompts for commissioning on
-every restart and never reaches RUNNING unattended. [Build](#build) has a three-command
-self-signed recipe; signing turns the output into `build/Ignition-MCP.modl`.
+Released builds are signed, so the gateway remembers the certificate and reaches RUNNING
+unattended after the first install. Each release's notes carry the certificate's SHA-256
+fingerprint — compare it against what the gateway shows you when it asks you to accept.
+
+<details>
+<summary>Or build from source</summary>
+
+```bash
+git clone https://github.com/co-lens/ignition-modules.git
+cd ignition-modules
+./gradlew :modules:mcp:build
+```
+
+That produces `modules/mcp/build/Ignition-MCP.unsigned.modl`. **Sign it if you can** — an unsigned
+module has no certificate fingerprint for the gateway to remember, so 8.3 re-prompts for
+commissioning on every restart and never reaches RUNNING unattended. [Build](#build) has a
+three-command self-signed recipe; signing turns the output into
+`modules/mcp/build/Ignition-MCP.modl`.
+</details>
 
 ### 2. Install it on the gateway
 
@@ -35,11 +51,12 @@ Upload the `.modl` from the gateway's **Config → Modules** page and accept the
 prompted. Or drop the file straight into the module folder and restart:
 
 ```bash
-cp build/Ignition-MCP.modl /usr/local/bin/ignition/user-lib/modules/
+cp Ignition-MCP-<version>.modl /usr/local/bin/ignition/user-lib/modules/
 ```
 
-If you're installing the **unsigned** build, the gateway must be started with
-`-Dignition.allowunsignedmodules=true` or it will refuse to load it.
+If you built an **unsigned** module yourself, the gateway must be started with
+`-Dignition.allowunsignedmodules=true` or it will refuse to load it. Released builds are signed
+and need no such flag.
 
 Confirm it came up — this endpoint needs no auth:
 
@@ -123,11 +140,22 @@ of the design rather than being built:
 
 ## Layout
 
+This is a monorepo of Ignition modules. Each lives under `modules/`, carries independent semver,
+and is released by its own tag — `mcp-v0.2.0` releases only the MCP module.
+
 ```
-:common    GD   MCP protocol + tool registry. Pure Kotlin, unit-tested without Ignition.
-:gateway   G    Mounts the MCP endpoints under /data/mcp/. Gateway tools.
-:designer  D    Loopback HTTP endpoint + discovery file. Designer tools.
+modules/mcp/       the Ignition MCP module — id io.colens.mcp-ign
+  common    GD   MCP protocol + tool registry. Pure Kotlin, unit-tested without Ignition.
+  gateway   G    Mounts the MCP endpoints under /data/mcp/. Gateway tools.
+  designer  D    Loopback HTTP endpoint + discovery file. Designer tools.
+docker/            throwaway dev gateway
 ```
+
+`io.ia.sdk.modl` is applied at `:modules:mcp`, not at the root: one plugin application per module,
+and the plugin only wires projects inside the applying project's own subtree. That subtree rule is
+also why `common` sits inside the module rather than in a shared `libraries/` tree — sharing it
+across modules later means depending on it via `modlApi`, not listing it in `projectScopes`, where
+it would be silently ignored.
 
 ## Gateway endpoints
 
@@ -221,13 +249,19 @@ usually the whole diagnosis. Only views a user currently has open are visible.
 ## Build
 
 ```bash
-./gradlew build          # runs :common protocol tests, produces build/Ignition-MCP.unsigned.modl
-./gradlew :common:test   # protocol tests alone; no Ignition needed
+./gradlew :modules:mcp:build         # protocol tests + modules/mcp/build/Ignition-MCP.unsigned.modl
+./gradlew :modules:mcp:common:test   # protocol tests alone; no Ignition needed
 ```
+
+Pass `-PmcpVersion=0.2.0` to stamp a version; it defaults to `0.1.0-SNAPSHOT`. Run `clean` when you
+change it — `moduleContent/` accumulates jars, and the plugin refuses to package two versions of
+the same library.
 
 Signing is skipped unless you set `module.keystorePath` and friends — see
 `gradle.properties.template`. Put real values in `~/.gradle/gradle.properties`; the repo's
-`gradle.properties` is gitignored so a keystore password can't be committed by accident.
+`gradle.properties` is gitignored so a keystore password can't be committed by accident. Skipping
+is *silent* and leaves any previously signed `.modl` in place, so CI additionally sets
+`-Pmodule.requireSigning=true`, which turns a missing credential into a build failure.
 
 **Sign even for local development.** An unsigned module has no certificate fingerprint for the
 gateway to remember, so 8.3 re-prompts for commissioning on *every* restart and never reaches
@@ -254,8 +288,13 @@ then put the five `module.*` properties in `~/.gradle/gradle.properties`.
 docker compose -f docker/docker-compose.yml up -d
 ```
 
-This mounts `build/Ignition-MCP.unsigned.modl` straight into the gateway's module folder, so
-after a rebuild you only need `docker compose -f docker/docker-compose.yml restart`.
+This mounts `modules/mcp/build/Ignition-MCP.modl` — the *signed* output — straight into the
+gateway's module folder, so after a rebuild you only need
+`docker compose -f docker/docker-compose.yml restart`.
+
+> **Use `restart`, never `up -d`.** No volume persists `/usr/local/bin/ignition/data`, so anything
+> that recreates the container (a changed volume, an override file, a compose edit) silently
+> destroys the gateway's projects and API tokens along with it.
 
 Ignition 8.3 stops a fresh container at `COMMISSIONING` with
 `Resources needing commissioning: modules` until an operator accepts our module's certificate:
@@ -294,6 +333,32 @@ ships is not circumventing a licence check, but running it forever unattended tu
 time-boxed trial into an unbounded one — so it is opt-in, refuses to start on an activated gateway,
 and logs at WARN both at startup and on every reset, under the logger `mcp.Gateway.Trial`. Use it
 on a throwaway dev gateway; licence anything a customer touches.
+
+## Releasing
+
+Push a tag; the workflow builds, signs and publishes. Each module has its own tag prefix and its
+own semver, so releasing one never version-bumps another.
+
+```bash
+git tag -a mcp-v0.2.0 -m "Release 0.2.0"
+git push origin mcp-v0.2.0
+```
+
+The version must match `MAJOR.MINOR.PATCH` with optionally `-rcN` or `-betaN`; anything else is
+rejected before the build starts. That is narrower than SemVer on purpose. Ignition's
+`common.model.Version` accepts only `-rcN`, `-betaN` and `-SNAPSHOT`, and `ModuleInfoParser` calls
+it on `<version>` with no error handling — so a SemVer-legal tag like `1.0.0-alpha.1` would parse
+fine here and then fail to install on someone's gateway. An `-rc`/`-beta` tag publishes as a GitHub
+pre-release, which is excluded from `/releases/latest`.
+
+The workflow refuses to release a commit that isn't on `main`, refuses to overwrite an existing
+release, and asserts the built `.modl` really is signed — that its `signatures.properties` covers
+every jar, and that `module.xml` and the jar manifests all agree on the version. `workflow_dispatch`
+runs the whole thing and publishes nothing, which is the way to rehearse a change.
+
+Signing uses a release key held in repository secrets, separate from any local dev key. Rotating it
+changes the certificate fingerprint, which re-prompts **every** gateway that already has the module
+installed — so treat rotation as a migration, not a chore.
 
 ## Connecting a client
 
