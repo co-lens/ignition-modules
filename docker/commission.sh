@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Commission the dev gateway so our unsigned module loads alongside the stock IA modules.
 #
-# Ignition 8.3 stops at COMMISSIONING with "Resources needing commissioning: modules" until an
+# On the 8.1 line this is usually a no-op: the module-certificate commissioning gate is an 8.3
+# addition, so an unsigned module with -Dignition.allowunsignedmodules=true loads with no
+# acceptance step. The `grep -q moduleId` guard below already handles both cases.
+#
+# Ignition 8.3 stopped at COMMISSIONING with "Resources needing commissioning: modules" until an
 # operator accepts the certificate of any module it doesn't already trust — which includes an
 # unsigned dev build.
 #
@@ -13,8 +17,8 @@
 # Usage: docker/commission.sh [container-name] [gateway-url]
 set -euo pipefail
 
-CONTAINER="${1:-docker-ignition-gateway-1}"
-GATEWAY="${2:-http://localhost:18088}"
+CONTAINER="${1:-ignition-mcp-81-ignition-gateway-1}"
+GATEWAY="${2:-http://localhost:18188}"
 MODULES_JSON="/usr/local/bin/ignition/data/modules.json"
 
 echo "==> Waiting for the gateway to answer"

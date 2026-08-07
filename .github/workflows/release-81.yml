@@ -1,22 +1,18 @@
-name: Release module
+name: Release module (Ignition 8.1)
 
-# One tag prefix per module: pushing `mcp-v0.2.0` releases ONLY the MCP module, and each module
-# carries independent semver. When a second module lands, turn this into a `workflow_call`
-# workflow with one thin caller per module — not a matrix (a tag releases one module, so a matrix
-# would rebuild the others) and not a prefix `case` statement.
+# Triggered by a push to this branch, NOT by a tag — deliberately.
+#
+# GitHub resolves a `push: tags` workflow from the tree at the tagged commit, so a tag would keep
+# this file alive after 8.1/main is deleted: re-pushing it would still run a signed build against
+# the production signing secrets. A `push: branches` trigger resolves only from the branch, so
+# deleting the branch is a complete and permanent off-switch. That is a requirement of this
+# branch, not a preference.
+#
+# To release: edit modules/mcp/VERSION, commit, push. The tag is created by the job.
 on:
   push:
-    tags:
-      - 'mcp-v*'
-  # Rehearsal. Builds, signs and verifies exactly as a real release does, but publishes nothing —
-  # the .modl comes back as a job artifact instead. Use this to iterate on the workflow without
-  # leaving tags or releases behind.
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to build and verify, e.g. 0.2.0-rc1. Publishes nothing.'
-        required: true
-        type: string
+    branches: ['8.1/main']
+    paths: ['modules/mcp/VERSION']
 
 # The repository default is `read`, so creating a release would 403 without this.
 permissions:
@@ -26,7 +22,9 @@ permissions:
 # releases and share nothing. Two pushes of the SAME tag queue instead of racing, and the second
 # then dies on the "release already exists" guard below.
 concurrency:
-  group: release-${{ github.ref }}
+  # Prefixed because concurrency groups are repo-global and `github.workflow` alone would collide
+  # with the 8.3 line's release.
+  group: release81-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -36,32 +34,28 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # Validate before anything else runs, including checkout. Ignition's common.model.Version
-      # accepts major.minor.rev[.build] with optionally -rcN / -betaN / -SNAPSHOT and nothing else,
-      # and ModuleInfoParser calls it on <version> with no error handling — so a malformed version
-      # is not a build failure here, it is a hard install failure on an operator's gateway later.
-      # Note this is NARROWER than SemVer: `1.0.0-alpha.1` is legal SemVer and fatal to Ignition.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Reads modules/mcp/VERSION, so unlike the 8.3 line this cannot run before checkout.
       #
-      # The ref is read through `env`, never interpolated into the script body, so a hostile tag
-      # name cannot inject shell.
+      # Ignition's common.model.Version accepts major.minor.rev[.build] with optionally
+      # -rcN / -betaN / -SNAPSHOT and nothing else, and ModuleInfoParser calls it on <version> with
+      # no error handling — so a malformed version is not a build failure here, it is a hard
+      # install failure on an operator's gateway later. Note this is NARROWER than SemVer:
+      # `1.0.0-alpha.1` is legal SemVer and fatal to Ignition.
       - name: Resolve and validate the version
         id: v
-        env:
-          EVENT: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
-          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" = "workflow_dispatch" ]; then
-            tag=""
-            version="$INPUT_VERSION"
-          else
-            tag="$REF_NAME"
-            version="${tag#mcp-v}"
-          fi
+          version="$(tr -d '[:space:]' < modules/mcp/VERSION)"
+          tag="mcp81-v$version"
 
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta)[0-9]+)?$'; then
-            echo "::error::Bad version '$version' (from '${tag:-workflow_dispatch input}'). Expected" \
+            echo "::error::Bad version '$version' (from modules/mcp/VERSION). Expected" \
                  "MAJOR.MINOR.PATCH with an optional -rcN or -betaN suffix. Ignition cannot parse anything else."
             exit 1
           fi
@@ -75,27 +69,12 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0            # ancestry check below, and `gh release --generate-notes`
-          persist-credentials: false # the job never pushes; don't leave a token in .git/config
-
-      # A tag can be pushed at any commit in the repo, including one never reviewed or merged.
-      - name: Refuse to release a commit that is not on main
-        if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --quiet origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
-            echo "::error::${GITHUB_REF_NAME} points at $GITHUB_SHA, which is not an ancestor of origin/main."
-            exit 1
-          fi
+      # No ancestry check: the `push: branches` trigger IS the branch constraint, and the 8.3
+      # version of this step asserted ancestry of main, which no 8.1 commit can satisfy.
 
       # Re-pushing a moved tag must not silently republish. `gh release create` would fail anyway,
       # but only after a full signed build — fail in seconds instead.
       - name: Refuse to overwrite an existing release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
@@ -194,7 +173,7 @@ jobs:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
           set -euo pipefail
-          modl='modules/mcp/build/Ignition-MCP.modl'
+          modl='modules/mcp/build/Ignition-MCP-81.modl'
           [ -f "$modl" ] || { echo "::error::$modl does not exist — signModule did not run."; exit 1; }
 
           entries="$(unzip -Z1 "$modl")"
@@ -237,28 +216,26 @@ jobs:
           mkdir -p dist
           # The build output name stays stable (docker-compose mounts it); the version is baked
           # into the published asset name so downloads don't collide in a folder.
-          cp modules/mcp/build/Ignition-MCP.modl "dist/Ignition-MCP-$VERSION.modl"
-          ( cd dist && sha256sum "Ignition-MCP-$VERSION.modl" > "Ignition-MCP-$VERSION.modl.sha256" )
+          cp modules/mcp/build/Ignition-MCP-81.modl "dist/Ignition-MCP-81-$VERSION.modl"
+          ( cd dist && sha256sum "Ignition-MCP-81-$VERSION.modl" > "Ignition-MCP-81-$VERSION.modl.sha256" )
 
           # Operators are asked to accept this fingerprint on install. Publishing it gives them
           # something to check the prompt against.
-          fp=$(unzip -p modules/mcp/build/Ignition-MCP.modl certificates.p7b \
+          fp=$(unzip -p modules/mcp/build/Ignition-MCP-81.modl certificates.p7b \
                | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2)
           echo "fingerprint=$fp" >> "$GITHUB_OUTPUT"
 
-      # Always uploaded: gives the workflow_dispatch rehearsal something to download, and leaves
-      # evidence when the verification step fails.
+      # Always uploaded, so a failed verification still leaves the artifact behind to inspect.
       - name: Upload the module as a job artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Ignition-MCP-${{ steps.v.outputs.version }}
+          name: Ignition-MCP-81-${{ steps.v.outputs.version }}
           path: dist/
           if-no-files-found: warn
           retention-days: 14
 
       - name: Create the GitHub Release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
@@ -267,18 +244,22 @@ jobs:
           FINGERPRINT: ${{ steps.stage.outputs.fingerprint }}
         run: |
           set -euo pipefail
-          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag)
+          # --target creates the tag at this commit (so no --verify-tag, which asserts it already
+          # exists). --latest=false keeps the 8.3 line holding the "Latest release" badge that
+          # main's README links to.
+          args=(--title "Ignition MCP $VERSION (Ignition 8.1)" --generate-notes
+                --target "$GITHUB_SHA" --latest=false)
           if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
 
           gh release create "$TAG" "${args[@]}" \
-            "dist/Ignition-MCP-$VERSION.modl" \
-            "dist/Ignition-MCP-$VERSION.modl.sha256"
+            "dist/Ignition-MCP-81-$VERSION.modl" \
+            "dist/Ignition-MCP-81-$VERSION.modl.sha256"
 
           gh release view "$TAG" --json body --jq .body > /tmp/body.md
           {
             echo
             echo "---"
-            echo "Install \`Ignition-MCP-$VERSION.modl\` from the gateway's **Config → Modules** page."
+            echo "Install \`Ignition-MCP-81-$VERSION.modl\` from the gateway's **Config → Modules** page."
             echo
             echo "Signing certificate SHA-256 fingerprint:"
             echo '```'

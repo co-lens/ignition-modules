@@ -3,9 +3,9 @@ plugins {
 }
 
 /**
- * Version, independent per module. The release workflow derives `0.2.0` from the tag `mcp-v0.2.0`
- * and passes `-PmcpVersion=0.2.0`; locally it defaults to a snapshot, so a dev build can never be
- * mistaken for a release artifact.
+ * Version. On this branch the release workflow reads `modules/mcp/VERSION` and passes
+ * `-PmcpVersion=<that>`; locally it defaults to a snapshot, so a dev build can never be mistaken
+ * for a release artifact.
  *
  * The property name deliberately has no dot, unlike the `module.*` signing properties, so
  * `ORG_GRADLE_PROJECT_mcpVersion` stays usable as an escape hatch.
@@ -51,7 +51,7 @@ tasks.named("check") {
  * -Dignition.allowunsignedmodules=true.
  *
  * When credentials are absent the plugin *skips* signing silently and leaves any pre-existing
- * Ignition-MCP.modl untouched, which is how a stale or unsigned artifact could be published with a
+ * Ignition-MCP-81.modl untouched, which is how a stale or unsigned artifact could be published with a
  * green build. `module.requireSigning=true` turns that skip into a configuration-time failure; CI
  * sets it, so a missing or misnamed secret fails the job instead.
  */
@@ -76,7 +76,7 @@ tasks.signModule {
 
 ignitionModule {
     name.set("Ignition MCP")
-    fileName.set("Ignition-MCP")
+    fileName.set("Ignition-MCP-81")
     id.set("io.colens.mcp-ign")
     moduleVersion.set("${project.version}")
     moduleDescription.set("Model Context Protocol server for Ignition gateways and Designers.")
@@ -91,11 +91,14 @@ ignitionModule {
         )
     )
 
-    // Perspective is declared OPTIONAL. In Ignition a module dependency is what grants
-    // classloader visibility of another module's classes — without this entry our Perspective
-    // code cannot load at all, no matter that it compiles. `required = false` gets that
-    // visibility when Perspective is installed while still letting this module load on a gateway
-    // that doesn't have it, where the perspective_* tools are simply absent from tools/list.
+    // A module dependency is what grants classloader visibility of another module's classes —
+    // without this entry our Perspective code cannot load at all, no matter that it compiles.
+    //
+    // `required = false` is set but has NO EFFECT on this branch: the modl plugin only writes the
+    // attribute when requiredIgnitionVersion is 8.3+, and 8.1's ModuleInfoParser doesn't read it
+    // either (verified against both parsers). So on the 8.1 line Perspective is a HARD dependency
+    // and this module will not install on a gateway without it. Dropping the entry instead would
+    // cost classloader visibility and take all 19 Perspective tools with it — the worse trade.
     moduleDependencySpecs {
         register("com.inductiveautomation.perspective") {
             scope = "GD"
