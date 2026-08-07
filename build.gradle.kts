@@ -47,7 +47,17 @@ ignitionModule {
         )
     )
 
-    moduleDependencySpecs { }
+    // Perspective is declared OPTIONAL. In Ignition a module dependency is what grants
+    // classloader visibility of another module's classes — without this entry our Perspective
+    // code cannot load at all, no matter that it compiles. `required = false` gets that
+    // visibility when Perspective is installed while still letting this module load on a gateway
+    // that doesn't have it, where the perspective_* tools are simply absent from tools/list.
+    moduleDependencySpecs {
+        register("com.inductiveautomation.perspective") {
+            scope = "GD"
+            required = false
+        }
+    }
 
     hooks.putAll(
         mapOf(

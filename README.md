@@ -52,6 +52,11 @@ the mutating tools, so a read-scoped token can't list *or* call them.
 
 **System** — `gateway_info`, `list_modules`, `query_logs`, `list_active_alarms`, **`run_script`**
 
+**Perspective** (present only when Perspective is installed) — `perspective_list_views`,
+`perspective_get_view`, `perspective_get_component`, `perspective_list_component_types`,
+`perspective_get_component_type`, `perspective_validate_view`, plus `perspective_list_sessions`
+and `perspective_diagnose_live_view` on the gateway only. See [Perspective](#perspective).
+
 Bold tools are write-scoped and annotated `destructiveHint`. `run_script` executes arbitrary
 Jython in gateway scope — anyone with a write token effectively has gateway root, so scope your
 tokens accordingly, or don't issue write tokens at all.
@@ -70,6 +75,50 @@ The Designer's value over the gateway is that writes are **staged, not committed
 up as unsaved Designer changes for a human to review and save. Nothing here writes to the
 gateway on its own.
 
+## Perspective
+
+Perspective is an **optional** module dependency (`required="false"`), which in Ignition is what
+grants classloader visibility of another module's classes. With Perspective installed the
+`perspective_*` tools appear; without it they're simply absent from `tools/list` rather than
+present-and-broken.
+
+**Reading and diagnosing** works from either scope. `perspective_get_view` returns the component
+tree with the path you pass to every other tool, which properties are bound and how many events
+are attached; `perspective_get_component` returns one component in full.
+
+**Editing is Designer-only**, and edits stage as unsaved Designer changes for a human to review
+and save — the gateway gains no project-mutation surface. The edit tools are surgical
+(`perspective_add_component`, `perspective_set_binding`, `perspective_set_event`, …), so a model
+addresses components by path and never handles raw `view.json`. Every edit is validated before it
+is staged and refused outright if the result would be invalid.
+
+### Validation
+
+`perspective_validate_view` checks against the live component registry and Perspective's own JSON
+schemas, and specifically catches the mistakes that break hand-written views *silently*:
+
+| Code | What it catches |
+|---|---|
+| `inline_binding` | a binding left in `props{}` instead of `propConfig{}` — Perspective renders it as literal data and reports nothing |
+| `bidirectional_misplaced` | `bidirectional` on the binding rather than inside `binding.config`, where it is ignored |
+| `script_indentation` | an event script without its leading tab; scripts are function bodies, so this is a runtime syntax error |
+| `unknown_component_type` | a type that isn't in the registry |
+| `invalid_prop` / `invalid_binding_config` | schema violations, via Ignition's own `JsonSchema.validate` |
+
+Props are validated **merged over the component's defaults**, because a stored view omits every
+property left at its default — validating the stored object alone reports each unwritten default
+as "missing but required" and buries the real findings.
+
+`perspective_set_event` and `perspective_set_change_script` indent scripts for you, so the most
+common of those mistakes cannot be made through the tools at all.
+
+### Live diagnostics
+
+`perspective_diagnose_live_view` walks a view in a running session and reports every configured
+property with its binding **and its current value and quality**. Perspective surfaces binding
+failures as quality overlays rather than errors, so a bad quality next to its binding config is
+usually the whole diagnosis. Only views a user currently has open are visible.
+
 ## Build
 
 ```bash
@@ -80,6 +129,21 @@ gateway on its own.
 Signing is skipped unless you set `module.keystorePath` and friends — see
 `gradle.properties.template`. Put real values in `~/.gradle/gradle.properties`; the repo's
 `gradle.properties` is gitignored so a keystore password can't be committed by accident.
+
+**Sign even for local development.** An unsigned module has no certificate fingerprint for the
+gateway to remember, so 8.3 re-prompts for commissioning on *every* restart and never reaches
+RUNNING unattended. A self-signed cert is enough:
+
+```bash
+mkdir -p ~/.mcp-ign-signing && cd ~/.mcp-ign-signing
+keytool -genkeypair -alias mcp-ign -keyalg RSA -keysize 2048 -validity 3650 \
+  -dname "CN=mcp-ign dev, OU=Dev, O=colens, C=US" \
+  -keystore keystore.pfx -storetype PKCS12 -storepass changeit -keypass changeit
+keytool -exportcert -alias mcp-ign -keystore keystore.pfx -storetype PKCS12 \
+  -storepass changeit -rfc -file cert.pem
+```
+
+then put the five `module.*` properties in `~/.gradle/gradle.properties`.
 
 > **Note:** `./gradlew deployModl` is broken on Gradle 9 — the plugin's `Deploy` task fails
 > configuration validation (`property 'targetUrl' ... is in 'java.*'`). The dev container below
@@ -94,18 +158,20 @@ docker compose -f docker/docker-compose.yml up -d
 This mounts `build/Ignition-MCP.unsigned.modl` straight into the gateway's module folder, so
 after a rebuild you only need `docker compose -f docker/docker-compose.yml restart`.
 
-Ignition 8.3 requires explicit operator acceptance of unsigned modules, so a fresh container
-stops at `COMMISSIONING` with `Resources needing commissioning: modules`. Accept ours:
+Ignition 8.3 stops a fresh container at `COMMISSIONING` with
+`Resources needing commissioning: modules` until an operator accepts our module's certificate:
 
 ```bash
-curl -s "http://localhost:18088/get-step?step=modules"        # shows what's pending
-
-curl -s -X POST -H 'Content-Type: application/json' \
-  -d '{"id":"modules","step":"modules","data":{"acceptedLicenses":[],"acceptedCertificates":["io.colens.mcp-ign"]}}' \
-  http://localhost:18088/post-step
-
-docker compose -f docker/docker-compose.yml restart
+docker/commission.sh
 ```
+
+Two traps that script exists to avoid, both of which quarantine every stock module — Perspective
+included — and are miserable to diagnose:
+
+- **Never set `GATEWAY_MODULES_ENABLED`** to just your module. Commissioning reads it as the
+  *complete* list of modules to enable and disables everything else.
+- `POST /post-step` treats `acceptedCertificates` as the **complete** accepted set, not an
+  addition to it, with the same effect.
 
 Then `curl -s http://localhost:18088/data/mcp/health` should return `{"status":"ok",...}`.
 

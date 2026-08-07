@@ -11,6 +11,7 @@ java {
 
 dependencies {
     compileOnly(libs.bundles.gateway)
+    compileOnly(libs.bundles.perspectiveGateway)
     compileOnly(project(":common"))
     modlImplementation(libs.kotlin.stdlib)
 }

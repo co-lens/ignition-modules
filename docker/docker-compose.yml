@@ -5,18 +5,20 @@ services:
       - 18088:8088
       - 18000:8000
     volumes:
-      # The build output is mounted straight into the module folder, so the gateway picks the
-      # module up on first boot and commissions it along with everything else. Rebuild with
-      # `./gradlew build`, then `docker compose restart` to reload.
-      - ../build/Ignition-MCP.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
+      # The SIGNED build output is mounted straight into the module folder, so the gateway picks
+      # it up on first boot. Sign with a self-signed cert (see README) — an unsigned module has
+      # no certificate fingerprint for the gateway to remember, so it re-prompts for commissioning
+      # on every single restart. Rebuild with `./gradlew build -Pmodule.*`, then
+      # `docker compose restart`.
+      - ../build/Ignition-MCP.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
     environment:
       GATEWAY_ADMIN_PASSWORD: password
       IGNITION_EDITION: standard
       ACCEPT_IGNITION_EULA: Y
-      # Auto-accept our unsigned dev module during commissioning; without these the gateway
-      # stops at "Resources needing commissioning: modules" and waits for a human.
       ALLOW_UNSIGNED_MODULES: "true"
-      GATEWAY_MODULES_ENABLED: io.colens.mcp-ign
+      # Do NOT set GATEWAY_MODULES_ENABLED. Commissioning treats it as the COMPLETE list of
+      # modules to enable, so naming only our module disables every stock module — Perspective
+      # included — and they all land in quarantine on the next boot.
     command: >
       -n ignition-mcp-dev
       -d

@@ -11,6 +11,7 @@ java {
 
 dependencies {
     compileOnly(libs.bundles.designer)
+    compileOnly(libs.bundles.perspectiveDesigner)
     compileOnly(project(":common"))
     modlImplementation(libs.kotlin.stdlib)
 }

@@ -10,6 +10,7 @@ import io.colens.mcp.common.Constants
 import io.colens.mcp.common.McpServer
 import io.colens.mcp.common.ToolRegistry
 import io.colens.mcp.designer.tools.DesignerTools
+import io.colens.mcp.designer.tools.PerspectiveEditTools
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
@@ -49,7 +50,9 @@ class DesignerHook : AbstractDesignerModuleHook() {
             return
         }
 
-        val registry = ToolRegistry().addAll(DesignerTools(context).tools())
+        val registry = ToolRegistry()
+            .addAll(DesignerTools(context).tools())
+            .addAll(perspectiveTools())
 
         val discoveryFile = DiscoveryFile()
         if (!discoveryFile.initialize()) {
@@ -111,6 +114,18 @@ class DesignerHook : AbstractDesignerModuleHook() {
                 JMenuMerge(WellKnownMenuConstants.TOOLS_MENU_NAME).apply { add(dialog.menuItem) },
             )
         }
+    }
+
+    /**
+     * Perspective is an optional module dependency, so constructing these tools can throw
+     * NoClassDefFoundError on a Designer connected to a gateway without Perspective. Catch it and
+     * leave them out of tools/list rather than failing the whole hook.
+     */
+    private fun perspectiveTools(): List<io.colens.mcp.common.Tool> = try {
+        PerspectiveEditTools(context).tools()
+    } catch (t: Throwable) {
+        logger.info("Perspective tools unavailable in this Designer: {}", t.toString())
+        emptyList()
     }
 
     private fun gatewayAddress(): String? = runCatching {

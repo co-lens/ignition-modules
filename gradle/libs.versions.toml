@@ -17,6 +17,12 @@ ignition-gateway-api = { group = "com.inductiveautomation.ignitionsdk", name = "
 ignition-designer-api = { group = "com.inductiveautomation.ignitionsdk", name = "designer-api", version.ref = "ignition" }
 ignition-client-api = { group = "com.inductiveautomation.ignitionsdk", name = "client-api", version.ref = "ignition" }
 
+# Perspective stays optional at runtime: compileOnly everywhere, no moduleDependencies entry, so
+# the module still loads on a gateway that doesn't have Perspective installed.
+ignition-perspective-common = { group = "com.inductiveautomation.ignitionsdk", name = "perspective-common", version.ref = "ignition" }
+ignition-perspective-gateway = { group = "com.inductiveautomation.ignitionsdk", name = "perspective-gateway", version.ref = "ignition" }
+ignition-perspective-designer = { group = "com.inductiveautomation.ignitionsdk", name = "perspective-designer", version.ref = "ignition" }
+
 kotest-junit = { group = "io.kotest", name = "kotest-runner-junit5", version.ref = "kotest" }
 kotest-assertions-core = { group = "io.kotest", name = "kotest-assertions-core", version.ref = "kotest" }
 
@@ -24,4 +30,6 @@ kotest-assertions-core = { group = "io.kotest", name = "kotest-assertions-core",
 common = ["ignition-common"]
 gateway = ["ignition-common", "ignition-gateway-api"]
 designer = ["ignition-common", "ignition-designer-api", "ignition-client-api"]
+perspectiveGateway = ["ignition-perspective-common", "ignition-perspective-gateway"]
+perspectiveDesigner = ["ignition-perspective-common", "ignition-perspective-designer"]
 kotest = ["kotest-junit", "kotest-assertions-core"]

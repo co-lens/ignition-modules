@@ -14,6 +14,7 @@ import io.colens.mcp.common.ToolRegistry
 import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.put
 import io.colens.mcp.gateway.tools.DataTools
+import io.colens.mcp.gateway.tools.PerspectiveTools
 import io.colens.mcp.gateway.tools.ProjectTools
 import io.colens.mcp.gateway.tools.SystemTools
 import io.colens.mcp.gateway.tools.TagTools
@@ -54,6 +55,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
             .addAll(ProjectTools(context).tools())
             .addAll(DataTools(context).tools())
             .addAll(SystemTools(context).tools())
+            .addAll(perspectiveTools())
 
         val version = moduleVersion()
         val origins = extraAllowedOrigins()
@@ -152,6 +154,20 @@ class GatewayHook : AbstractGatewayModuleHook() {
     override fun isFreeModule(): Boolean = true
 
     override fun isMakerEditionCompatible(): Boolean = true
+
+    /**
+     * Perspective is an optional dependency (compileOnly, and deliberately not declared in
+     * `moduleDependencies`), so this module must still load on a gateway without it. Merely
+     * constructing `PerspectiveTools` resolves Perspective classes, which is what would throw
+     * `NoClassDefFoundError` — hence catching `Throwable` here rather than checking a flag.
+     * The tools are then simply absent from `tools/list`, which is the honest answer.
+     */
+    private fun perspectiveTools(): List<io.colens.mcp.common.Tool> = try {
+        PerspectiveTools(context).tools()
+    } catch (t: Throwable) {
+        logger.info("Perspective tools unavailable on this gateway: {}", t.toString())
+        emptyList()
+    }
 
     private fun moduleVersion(): String =
         javaClass.`package`?.implementationVersion ?: "dev"
