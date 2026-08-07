@@ -1,0 +1,17 @@
+# Module signing credentials.
+#
+# Do NOT copy this to gradle.properties in the repo — it is gitignored for a reason, and a
+# stray commit leaks your keystore password. Put these in ~/.gradle/gradle.properties instead,
+# or pass them as -P flags on the command line.
+#
+# If none of these are set, the build skips signing entirely. An unsigned .modl installs fine
+# on a gateway started with -Dignition.allowunsignedmodules=true (see docker/docker-compose.yml).
+
+module.keystorePath=/path/to/keystore.pfx
+module.keystorePw=changeme
+module.certFilePath=/path/to/cert.p7b
+module.certPw=changeme
+module.alias=your.alias
+
+# Target gateway for `./gradlew deployModl`. Defaults to http://localhost:18088.
+hostGateway=http://localhost:18088

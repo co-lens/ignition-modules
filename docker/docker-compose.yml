@@ -1,0 +1,25 @@
+services:
+  ignition-gateway:
+    image: inductiveautomation/ignition:8.3
+    ports:
+      - 18088:8088
+      - 18000:8000
+    volumes:
+      # The build output is mounted straight into the module folder, so the gateway picks the
+      # module up on first boot and commissions it along with everything else. Rebuild with
+      # `./gradlew build`, then `docker compose restart` to reload.
+      - ../build/Ignition-MCP.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
+    environment:
+      GATEWAY_ADMIN_PASSWORD: password
+      IGNITION_EDITION: standard
+      ACCEPT_IGNITION_EULA: Y
+      # Auto-accept our unsigned dev module during commissioning; without these the gateway
+      # stops at "Resources needing commissioning: modules" and waits for a human.
+      ALLOW_UNSIGNED_MODULES: "true"
+      GATEWAY_MODULES_ENABLED: io.colens.mcp-ign
+    command: >
+      -n ignition-mcp-dev
+      -d
+      --
+      -Dignition.allowunsignedmodules=true
+      -Dia.developer.moduleupload=true

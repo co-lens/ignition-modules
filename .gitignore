@@ -1,0 +1,8 @@
+build/
+.gradle/
+.idea/
+*.iml
+*.modl
+
+# Real signing credentials live in ~/.gradle/gradle.properties. Never commit them.
+gradle.properties
