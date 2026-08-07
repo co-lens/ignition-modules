@@ -1,0 +1,103 @@
+name: Docs (deploy)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-deploy.yml'
+  # Lets a deploy be re-run without an empty commit — after enabling Pages for the first time, or
+  # after a transient failure in the Pages service.
+  workflow_dispatch:
+
+# Least privilege, split per job: `build` needs only `contents: read`; `deploy` additionally needs
+# `pages: write` to publish and `id-token: write` for the OIDC token deploy-pages exchanges with
+# the Pages service. The repository default is `read`, so anything beyond it must be declared.
+permissions:
+  contents: read
+
+# `pages` is the conventional group name, and this one MUST NOT cancel in progress: cancelling
+# mid-deploy can leave the Pages service holding a half-applied deployment.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: docs
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      # Also the early failure if Pages has not been switched to the "GitHub Actions" source in
+      # repository settings — which cannot be done from a workflow.
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Typecheck
+        run: |
+          set -euo pipefail
+          npm run typecheck
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          npm run build
+
+      # GitHub Pages runs Jekyll unless told otherwise, and Jekyll discards underscore-prefixed
+      # paths. docs/static/.nojekyll is copied into build/ by Docusaurus; assert it survived rather
+      # than discovering a 404 on an asset chunk after the deploy.
+      - name: Assert .nojekyll survived the build
+        run: |
+          set -euo pipefail
+          [ -f build/.nojekyll ] || {
+            echo "::error::build/.nojekyll is missing. Jekyll will drop underscore-prefixed assets."
+            exit 1
+          }
+
+      # `path` is resolved from the workspace root — action inputs are not affected by
+      # defaults.run.working-directory, which only applies to `run:` steps.
+      - name: Upload the site as a Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/build
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    permissions:
+      pages: write # publish the deployment
+      id-token: write # OIDC token that deploy-pages exchanges with the Pages service
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

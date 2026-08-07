@@ -17,3 +17,15 @@ gradle.properties
 *.pem
 *.key
 secrets/
+
+# Docusaurus. `build/` on line 1 is unanchored and so already matches docs/build/ — these entries
+# are explicit so that coverage is intentional rather than incidental.
+#
+# Two traps that follow from the patterns above, worth knowing before you name a docs file:
+#   - a content folder called `build` anywhere would be silently ignored; use `building.md`
+#   - a static asset ending .pem/.key/.p7b/.pfx/.p12/.jks is silently dropped — it works locally
+#     and 404s in production, and `git status` says nothing
+docs/node_modules/
+docs/build/
+docs/.docusaurus/
+npm-debug.log*
