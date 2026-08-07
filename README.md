@@ -1,96 +1,131 @@
-# co-lens Ignition modules
+# Ignition MCP — Ignition 8.1 line
 
-Ignition modules written in Kotlin, each carrying independent semver and released by its own tag.
+> **This branch is a time-limited port.** It exists for people still on the Ignition 8.1 platform
+> line. It **never merges into `main`**, it receives only security fixes and wrong-data bug fixes,
+> and it is **scheduled for deletion around February 2027**. After that, published releases keep
+> working but nothing further is built.
+>
+> The 8.3 line — which is the maintained one — is on
+> [`main`](https://github.com/co-lens/ignition-modules), with full documentation at
+> <https://co-lens.github.io/ignition-modules/>.
 
-**Documentation: <https://co-lens.github.io/ignition-modules/>** — installation, the full tool
-reference, Perspective editing, and contributor guides. This README is a pointer and a quickstart;
-the site is canonical for everything else.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that runs inside Ignition, as a
+Kotlin module. Same 44 tools as the 8.3 line. The difference that matters is authentication.
 
-Requires **Ignition 8.3**.
+**Requires Ignition 8.1.40+ and Perspective** (see [Differences](#differences-from-the-83-line)).
 
-## Modules
+## Authentication — read this first
 
-| Module | Module id | Docs | Release tag |
-| --- | --- | --- | --- |
-| **Ignition MCP** — a [Model Context Protocol](https://modelcontextprotocol.io) server that runs *inside* Ignition, giving an AI client structured access to a gateway (tags, project resources, SQL, tag history, alarms, logs) and, optionally, to a running Designer. | `io.colens.mcp-ign` | [Docs](https://co-lens.github.io/ignition-modules/modules/mcp) | `mcp-v*` |
+**Ignition 8.1 has no API tokens.** Not a different API: none at all. So this line authenticates
+with two shared bearer secrets set as JVM arguments in `ignition.conf`:
 
-## Quickstart — Ignition MCP
+```
+wrapper.java.additional.9=-Dmcp.gateway.readSecret=<32+ random characters>
+wrapper.java.additional.10=-Dmcp.gateway.writeSecret=<32+ random characters>
+```
 
-Four steps, about ten minutes. The
-[full quickstart](https://co-lens.github.io/ignition-modules/modules/mcp/quickstart) has the
-gotchas and the Designer setup.
+| Property | Opens |
+| --- | --- |
+| `mcp.gateway.readSecret` | `POST /data/mcp/mcp-readonly` — the read-only tools |
+| `mcp.gateway.writeSecret` | `POST /data/mcp/mcp` — everything, **and** the read-only endpoint |
 
-**1. Download the signed module** from the
-[latest release](https://github.com/co-lens/ignition-modules/releases/latest):
+Clients send `Authorization: Bearer <secret>` — not the `X-Ignition-API-Token` header the 8.3 line
+uses.
+
+> [!WARNING]
+> This is materially weaker than 8.3's API tokens, and you should know exactly how:
+>
+> - **Not revocable** without restarting the gateway.
+> - **Visible** in the process table and on the gateway's own status page to anyone who can log in.
+> - **Shared** by every client, rather than issued per client.
+> - The write secret grants `run_script` — arbitrary Jython in gateway scope. **That is gateway
+>   root.**
+>
+> **Recommended posture: set `readSecret` only** and leave the write endpoint closed. If neither is
+> set, both endpoints reject everything with 401 and the gateway log carries an ERROR saying so.
+
+## Quickstart
+
+1. **Get the module** from the
+   [releases](https://github.com/co-lens/ignition-modules/releases) — assets on this line are named
+   `Ignition-MCP-81-<version>.modl`, tagged `mcp81-v*`. Do not use `Ignition-MCP-<version>.modl`;
+   that is the 8.3 build and an 8.1 gateway will refuse it.
+2. **Install it** from the gateway's Config → Modules page.
+3. **Set `-Dmcp.gateway.readSecret`** in `ignition.conf` and restart. Check it took:
+   ```bash
+   curl -s http://<gateway>:8088/data/mcp/health
+   # {"status":"ok","platform":"8.1","authConfigured":true,"writeEndpointEnabled":false,...}
+   ```
+4. **Connect:**
+   ```bash
+   claude mcp add --transport http ignition \
+     http://<gateway>:8088/data/mcp/mcp-readonly \
+     --header "Authorization: Bearer <readSecret>"
+   ```
+
+The Designer bridge is unchanged from the 8.3 line — it runs its own loopback server with a
+per-session secret and never touched Ignition's auth. Use **Tools → MCP Connection Info…**.
+
+## Differences from the 8.3 line
+
+| | 8.3 (`main`) | 8.1 (here) |
+| --- | --- | --- |
+| Auth | API tokens, per-token, revocable in the UI | two shared JVM-arg secrets |
+| Auth header | `X-Ignition-API-Token` | `Authorization: Bearer` |
+| Perspective | optional — module loads without it | **required** — module will not install without it |
+| Asset name | `Ignition-MCP-<v>.modl` | `Ignition-MCP-81-<v>.modl` |
+| Release tag | `mcp-v*` | `mcp81-v*` |
+
+**Why Perspective is required here.** 8.1's `ModuleInfoParser` has no `required` attribute on
+`<depends>`, so optional module dependencies don't exist on this platform line. Dropping the
+dependency instead would cost classloader visibility of Perspective's classes and take all 19
+Perspective tools with it.
+
+Everything else — the tool set, their names, arguments and behaviour — is identical. **The
+[tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3 docs site
+is accurate for this line too**; only its endpoint/auth pages are not.
+
+## Build
 
 ```bash
-gh release download --repo co-lens/ignition-modules --pattern 'Ignition-MCP-*'
-sha256sum -c Ignition-MCP-*.modl.sha256
+./gradlew clean :modules:mcp:build      # -> modules/mcp/build/Ignition-MCP-81.unsigned.modl
 ```
 
-**2. Install it** from the gateway's **Config → Modules** page, accepting the certificate when
-prompted. Then check it came up — this endpoint needs no auth:
+Signing, the trial watchdog and everything else work as documented on the
+[8.3 site](https://co-lens.github.io/ignition-modules/modules/mcp/contributing/building).
+
+Dev gateway on **18188** (18088 is the 8.3 line's):
 
 ```bash
-curl -s http://<gateway>:8088/data/mcp/health
+docker compose -f docker/docker-compose.yml up -d
+docker/commission.sh
 ```
 
-**3. Create an API token** under **Config → Security → API Tokens**. A default token (security
-level `Authenticated`) is all the read-only endpoint needs.
+The compose file sets an explicit project name; without it, `docker compose up` here would adopt
+and destroy the 8.3 container.
 
-> New tokens default to **Require Secure Channel**, which makes them fail with `401` over plain
-> HTTP no matter what else is right. Use HTTPS, or untick that box for a local gateway.
+## Releasing
 
-**4. Point your client at it:**
+Edit `modules/mcp/VERSION`, commit, push. The workflow builds, signs, tags `mcp81-v<version>` and
+publishes.
 
-```bash
-claude mcp add --transport http ignition \
-  http://<gateway>:8088/data/mcp/mcp-readonly \
-  --header "X-Ignition-API-Token: <keyId>:<secret>"
-```
+It is triggered by a **push to this branch, not by a tag** — deliberately. A tag keeps its
+commit's workflow tree alive, so a tag-triggered release would still fire after this branch is
+deleted. A branch trigger makes deleting the branch a complete off-switch.
 
-That gives you the read-only tools. The write endpoint (`/data/mcp/mcp`) additionally requires the
-gateway's **write** permission and exposes `run_script` — arbitrary Jython in gateway scope, which
-is gateway root. Issue such a token deliberately or not at all. See
-[Endpoints](https://co-lens.github.io/ignition-modules/modules/mcp/endpoints) and the
-[tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools).
+## Removed relative to `main`, and why
 
-## Build from source
+Don't restore these — each one actively breaks on this branch:
 
-```bash
-./gradlew :modules:mcp:build         # protocol tests + modules/mcp/build/Ignition-MCP.unsigned.modl
-./gradlew :modules:mcp:common:test   # protocol tests alone; no Ignition needed
-```
-
-See [Building](https://co-lens.github.io/ignition-modules/modules/mcp/contributing/building) for
-signing, which you want even locally — an unsigned module re-prompts for commissioning on every
-gateway restart.
-
-## Layout
-
-```
-modules/mcp/       the Ignition MCP module — id io.colens.mcp-ign
-  common    GD   MCP protocol + tool registry. Pure Kotlin, unit-tested without Ignition.
-  gateway   G    Mounts the MCP endpoints under /data/mcp/. Gateway tools.
-  designer  D    Loopback HTTP endpoint + discovery file. Designer tools.
-tools/tool-docs/   generates the tool reference on the docs site
-docs/              the docs site
-docker/            throwaway dev gateway
-```
-
-More on the shape and the reasoning:
-[Repo layout](https://co-lens.github.io/ignition-modules/contributing/repo-layout).
-
-## Contributing
-
-- [Building](https://co-lens.github.io/ignition-modules/modules/mcp/contributing/building)
-- [Dev gateway](https://co-lens.github.io/ignition-modules/modules/mcp/contributing/dev-gateway)
-- [Adding a tool](https://co-lens.github.io/ignition-modules/modules/mcp/contributing/adding-a-tool)
-- [Releasing](https://co-lens.github.io/ignition-modules/contributing/releasing)
-
-The tool reference on the docs site is generated from the module's own `Tool` declarations, so a
-new tool documents itself — run `./gradlew :tools:tool-docs:generateToolDocs` and commit
-`docs/src/data/tools.json`. CI fails on a stale one.
+- **`docs/`** (the Docusaurus site) — deploys only from `main`, and its generated tool reference
+  comes from `tools/tool-docs`, which is also gone.
+- **`tools/tool-docs`** — declares the Ignition SDK as real runtime dependencies and constructs the
+  tool classes, so it carries more 8.1 API surface to port than the module itself.
+- **`docs-test.yml`, `tool-reference.yml`** — both would fire on PRs here and fail against a tree
+  that no longer contains `docs/` or `tools/`.
+- **`docs-deploy.yml`** — cannot fire, but claims the repo-global `concurrency: pages` group.
+- **`.github/dependabot.yml`** — read only from the default branch, so it was inert. The
+  consequence is intended: **this branch gets no automated dependency updates.**
 
 ## Licence
 
