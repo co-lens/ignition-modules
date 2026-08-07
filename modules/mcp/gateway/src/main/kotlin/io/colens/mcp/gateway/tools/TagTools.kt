@@ -41,7 +41,7 @@ class TagTools(private val context: GatewayContext) {
     private fun listTagProviders() = Tool(
         name = "list_tag_providers",
         title = "List tag providers",
-        description = "Lists the tag providers configured on this gateway.",
+        description = "Lists the tag providers configured on this gateway. (ci verification)",
         inputSchema = schema(),
         handler = {
             jsonObject {
