@@ -9,13 +9,15 @@ services:
       - 18188:8088   # 18088 belongs to the 8.3 line
       - 18100:8000
     volumes:
-      # The SIGNED build output is mounted straight into the module folder, so the gateway picks
-      # it up on first boot. Sign with a self-signed cert (see README) — an unsigned module has
-      # no certificate fingerprint for the gateway to remember, so it re-prompts for commissioning
-      # on every single restart. Rebuild with `./gradlew :modules:mcp:build -Pmodule.*`, then
+      # The UNSIGNED build output, deliberately — 8.1 inverts 8.3's behaviour here. On 8.1 a
+      # module signed with an unknown (self-signed) certificate is QUARANTINED with "certificate
+      # not yet accepted" and needs an operator to approve it in the gateway UI, while an unsigned
+      # module loads straight away under -Dignition.allowunsignedmodules=true. Release builds are
+      # signed with the real release key and installed normally. Rebuild with
+      # `./gradlew :modules:mcp:build`, then
       # `docker compose restart` — never `up -d`, which recreates the container and takes the
       # gateway's whole data directory (projects, users) with it, since none is persisted.
-      - ../modules/mcp/build/Ignition-MCP-81.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP-81.modl:ro
+      - ../modules/mcp/build/Ignition-MCP-81.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP-81.modl:ro
     environment:
       GATEWAY_ADMIN_PASSWORD: password
       IGNITION_EDITION: standard

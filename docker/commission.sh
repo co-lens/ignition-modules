@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Commission the dev gateway so our unsigned module loads alongside the stock IA modules.
 #
-# On the 8.1 line this is usually a no-op: the module-certificate commissioning gate is an 8.3
-# addition, so an unsigned module with -Dignition.allowunsignedmodules=true loads with no
-# acceptance step. The `grep -q moduleId` guard below already handles both cases.
+# On the 8.1 line this is a no-op and the script exits early: 8.1 has no commissioning servlet at
+# all (/get-step 404s), so the `grep -q moduleId` guard below falls through to "nothing pending".
+#
+# 8.1 still quarantines a module signed with an unknown certificate — it just wants an operator to
+# approve it in the gateway UI rather than through this API. That is why the dev compose file
+# mounts the UNSIGNED build: unsigned loads immediately under -Dignition.allowunsignedmodules=true,
+# which is the opposite of the 8.3 line.
 #
 # Ignition 8.3 stopped at COMMISSIONING with "Resources needing commissioning: modules" until an
 # operator accepts the certificate of any module it doesn't already trust — which includes an

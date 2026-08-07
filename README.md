@@ -94,12 +94,21 @@ is accurate for this line too**; only its endpoint/auth pages are not.
 Signing, the trial watchdog and everything else work as documented on the
 [8.3 site](https://co-lens.github.io/ignition-modules/modules/mcp/contributing/building).
 
+> [!NOTE]
+> **Signing behaves the opposite way to 8.3 here.** On 8.1 a module signed with an unknown
+> (self-signed) certificate is quarantined — "certificate not yet accepted" — until an operator
+> approves it in the gateway UI, while an *unsigned* module loads immediately under
+> `-Dignition.allowunsignedmodules=true`. So the dev compose file mounts the **unsigned** build.
+> Release builds carry the real release certificate and install normally.
+
 Dev gateway on **18188** (18088 is the 8.3 line's):
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
-docker/commission.sh
 ```
+
+`docker/commission.sh` is kept for parity with the 8.3 line but is a no-op here — 8.1 has no
+commissioning servlet at all.
 
 The compose file sets an explicit project name; without it, `docker compose up` here would adopt
 and destroy the 8.3 container.
