@@ -1,0 +1,289 @@
+name: Release module
+
+# One tag prefix per module: pushing `mcp-v0.2.0` releases ONLY the MCP module, and each module
+# carries independent semver. When a second module lands, turn this into a `workflow_call`
+# workflow with one thin caller per module — not a matrix (a tag releases one module, so a matrix
+# would rebuild the others) and not a prefix `case` statement.
+on:
+  push:
+    tags:
+      - 'mcp-v*'
+  # Rehearsal. Builds, signs and verifies exactly as a real release does, but publishes nothing —
+  # the .modl comes back as a job artifact instead. Use this to iterate on the workflow without
+  # leaving tags or releases behind.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build and verify, e.g. 0.2.0-rc1. Publishes nothing.'
+        required: true
+        type: string
+
+# The repository default is `read`, so creating a release would 403 without this.
+permissions:
+  contents: write
+
+# Keyed on the ref so two different modules' tags run in parallel — they publish independent
+# releases and share nothing. Two pushes of the SAME tag queue instead of racing, and the second
+# then dies on the "release already exists" guard below.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      # Validate before anything else runs, including checkout. Ignition's common.model.Version
+      # accepts major.minor.rev[.build] with optionally -rcN / -betaN / -SNAPSHOT and nothing else,
+      # and ModuleInfoParser calls it on <version> with no error handling — so a malformed version
+      # is not a build failure here, it is a hard install failure on an operator's gateway later.
+      # Note this is NARROWER than SemVer: `1.0.0-alpha.1` is legal SemVer and fatal to Ignition.
+      #
+      # The ref is read through `env`, never interpolated into the script body, so a hostile tag
+      # name cannot inject shell.
+      - name: Resolve and validate the version
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            tag=""
+            version="$INPUT_VERSION"
+          else
+            tag="$REF_NAME"
+            version="${tag#mcp-v}"
+          fi
+
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta)[0-9]+)?$'; then
+            echo "::error::Bad version '$version' (from '${tag:-workflow_dispatch input}'). Expected" \
+                 "MAJOR.MINOR.PATCH with an optional -rcN or -betaN suffix. Ignition cannot parse anything else."
+            exit 1
+          fi
+
+          prerelease=false
+          case "$version" in *-rc*|*-beta*) prerelease=true ;; esac
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0            # ancestry check below, and `gh release --generate-notes`
+          persist-credentials: false # the job never pushes; don't leave a token in .git/config
+
+      # A tag can be pushed at any commit in the repo, including one never reviewed or merged.
+      - name: Refuse to release a commit that is not on main
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::${GITHUB_REF_NAME} points at $GITHUB_SHA, which is not an ancestor of origin/main."
+            exit 1
+          fi
+
+      # Re-pushing a moved tag must not silently republish. `gh release create` would fail anyway,
+      # but only after a full signed build — fail in seconds instead.
+      - name: Refuse to overwrite an existing release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A release already exists for $TAG. Delete it deliberately, or cut a new version."
+            exit 1
+          fi
+
+      # settings.gradle.kts has no foojay toolchain resolver, so Gradle 9 will not provision a JDK
+      # on its own — one must be present. This satisfies both the Gradle daemon and the
+      # subprojects' `languageVersion = 17` request.
+      - name: Set up JDK 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # validate-wrappers is on by default and checksums every gradle-wrapper.jar, so a separate
+      # wrapper-validation step would be redundant. Caching is disabled deliberately: this job
+      # produces a signed artifact that ships to operators, and a warm cache is one more input to
+      # its supply chain in exchange for about ninety seconds.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          validate-wrappers: true
+          cache-disabled: true
+          add-job-summary: on-failure
+
+      # Key material lands in RUNNER_TEMP, never the workspace: it cannot be caught by a stray
+      # `git add`, cannot end up in a job artifact, and dies with the runner.
+      - name: Materialise the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.MODULE_SIGNING_KEYSTORE_BASE64 }}
+          CERT_B64: ${{ secrets.MODULE_SIGNING_CERT_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MODULE_SIGNING_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.MODULE_SIGNING_ALIAS }}
+        run: |
+          set -euo pipefail
+          [ -n "$KEYSTORE_B64" ] || { echo "::error::MODULE_SIGNING_KEYSTORE_BASE64 is unset or empty"; exit 1; }
+          [ -n "$CERT_B64" ]     || { echo "::error::MODULE_SIGNING_CERT_BASE64 is unset or empty"; exit 1; }
+
+          install -d -m 700 "$RUNNER_TEMP/signing"
+          # The .pfx extension is LOAD-BEARING. SignModule picks the KeyStore type from the file
+          # name: '.pfx' -> pkcs12, anything else (including '.p12') -> jks, which then fails to
+          # load. Do not rename this file.
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing/release.pfx"
+          # The cert is copied verbatim into the .modl as `certificates.p7b` and never parsed by
+          # the plugin, so a PEM chain is fine — which is what this project already ships.
+          printf '%s' "$CERT_B64"     | base64 -d > "$RUNNER_TEMP/signing/cert.pem"
+          chmod 600 "$RUNNER_TEMP/signing"/*
+
+          # Fail here, clearly, if the keystore/password/alias disagree — rather than inside a
+          # Gradle stack trace ninety seconds later.
+          keytool -list -keystore "$RUNNER_TEMP/signing/release.pfx" -storetype PKCS12 \
+                  -storepass "$KEYSTORE_PASSWORD" -alias "$ALIAS" > /dev/null
+
+      # Passwords go into a 0600 file in the Gradle home, never onto Gradle's command line. A -P
+      # flag lands in the process argv, readable from /proc by anything else on the runner, and is
+      # echoed by Gradle into --info output, daemon logs, build scans and failure banners; log
+      # masking is best-effort string replacement and covers none of the process table.
+      - name: Write signing properties into the Gradle home
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.MODULE_SIGNING_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.MODULE_SIGNING_KEY_PASSWORD }}
+          ALIAS: ${{ secrets.MODULE_SIGNING_ALIAS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.gradle"
+          umask 077
+          {
+            echo "module.keystorePath=$RUNNER_TEMP/signing/release.pfx"
+            echo "module.certFilePath=$RUNNER_TEMP/signing/cert.pem"
+            echo "module.keystorePw=$KEYSTORE_PASSWORD"
+            echo "module.certPw=$KEY_PASSWORD"
+            echo "module.alias=$ALIAS"
+            # Turns the plugin's silent skip-signing behaviour into a configuration failure.
+            echo "module.requireSigning=true"
+          } >> "$HOME/.gradle/gradle.properties"
+          chmod 600 "$HOME/.gradle/gradle.properties"
+
+      # `:modules:mcp:build` runs the module's assemble chain (collect -> assemble -> writeModuleXml
+      # -> zipModule -> signModule -> checksumModl -> modlReport) and, through the `check`
+      # aggregation in modules/mcp/build.gradle.kts, the protocol tests. deployModl is never in
+      # this path. The version has already passed the regex above, so interpolating it is safe.
+      - name: Build and sign
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: ./gradlew --no-daemon --stacktrace -PmcpVersion="$VERSION" :modules:mcp:build
+
+      # THE GUARD. The plugin skips signing silently when credentials are absent and leaves any
+      # pre-existing .modl untouched, so "the file exists" proves nothing on its own.
+      - name: Verify the .modl is genuinely signed and correctly versioned
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          modl='modules/mcp/build/Ignition-MCP.modl'
+          [ -f "$modl" ] || { echo "::error::$modl does not exist — signModule did not run."; exit 1; }
+
+          entries="$(unzip -Z1 "$modl")"
+          for required in signatures.properties certificates.p7b module.xml; do
+            grep -qxF "$required" <<<"$entries" \
+              || { echo "::error::$modl contains no $required — it is NOT signed."; exit 1; }
+          done
+
+          # signatures.properties existing is not enough: it must carry a digest for every jar.
+          jars=$(grep -cE '\.jar$' <<<"$entries")
+          sigs=$(unzip -p "$modl" signatures.properties | grep -cE '\.jar=' || true)
+          [ "$jars" -gt 0 ] && [ "$sigs" -ge "$jars" ] \
+            || { echo "::error::signatures.properties covers $sigs of $jars jars."; exit 1; }
+
+          # Catches a stale artifact being passed off as this build.
+          unzip -p "$modl" module.xml | grep -qF "<version>$VERSION</version>" || {
+            echo "::error::module.xml version is not $VERSION:"
+            unzip -p "$modl" module.xml | grep -F '<version>'
+            exit 1
+          }
+
+          # ...and the jar manifests must agree, since Implementation-Version is what the hooks
+          # report at runtime through /data/mcp/health.
+          tmp=$(mktemp -d)
+          unzip -q -o "$modl" -d "$tmp"
+          for jar in "$tmp"/gateway-*.jar "$tmp"/designer-*.jar; do
+            got=$(unzip -p "$jar" META-INF/MANIFEST.MF | tr -d '\r' | sed -n 's/^Implementation-Version: //p')
+            [ "$got" = "$VERSION" ] \
+              || { echo "::error::$(basename "$jar") Implementation-Version='$got', expected '$VERSION'"; exit 1; }
+          done
+
+          echo "Verified: signed, $jars jars covered, version $VERSION consistent across module.xml and jar manifests."
+
+      - name: Stage the release assets
+        id: stage
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # The build output name stays stable (docker-compose mounts it); the version is baked
+          # into the published asset name so downloads don't collide in a folder.
+          cp modules/mcp/build/Ignition-MCP.modl "dist/Ignition-MCP-$VERSION.modl"
+          ( cd dist && sha256sum "Ignition-MCP-$VERSION.modl" > "Ignition-MCP-$VERSION.modl.sha256" )
+
+          # Operators are asked to accept this fingerprint on install. Publishing it gives them
+          # something to check the prompt against.
+          fp=$(unzip -p modules/mcp/build/Ignition-MCP.modl certificates.p7b \
+               | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2)
+          echo "fingerprint=$fp" >> "$GITHUB_OUTPUT"
+
+      # Always uploaded: gives the workflow_dispatch rehearsal something to download, and leaves
+      # evidence when the verification step fails.
+      - name: Upload the module as a job artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Ignition-MCP-${{ steps.v.outputs.version }}
+          path: dist/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Create the GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+          PRERELEASE: ${{ steps.v.outputs.prerelease }}
+          FINGERPRINT: ${{ steps.stage.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag)
+          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+
+          gh release create "$TAG" "${args[@]}" \
+            "dist/Ignition-MCP-$VERSION.modl" \
+            "dist/Ignition-MCP-$VERSION.modl.sha256"
+
+          gh release view "$TAG" --json body --jq .body > /tmp/body.md
+          {
+            echo
+            echo "---"
+            echo "Install \`Ignition-MCP-$VERSION.modl\` from the gateway's **Config → Modules** page."
+            echo
+            echo "Signing certificate SHA-256 fingerprint:"
+            echo '```'
+            echo "$FINGERPRINT"
+            echo '```'
+            echo "The gateway shows this when it asks you to accept the module's certificate."
+          } >> /tmp/body.md
+          gh release edit "$TAG" --notes-file /tmp/body.md
