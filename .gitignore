@@ -6,3 +6,14 @@ build/
 
 # Real signing credentials live in ~/.gradle/gradle.properties. Never commit them.
 gradle.properties
+
+# Key material. The release workflow keeps these in the runner's temp dir and never in the
+# workspace, so these patterns should never match anything — they exist because the failure they
+# prevent is committing a private key to a public repo.
+*.pfx
+*.p12
+*.jks
+*.p7b
+*.pem
+*.key
+secrets/

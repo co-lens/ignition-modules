@@ -8,9 +8,10 @@ services:
       # The SIGNED build output is mounted straight into the module folder, so the gateway picks
       # it up on first boot. Sign with a self-signed cert (see README) — an unsigned module has
       # no certificate fingerprint for the gateway to remember, so it re-prompts for commissioning
-      # on every single restart. Rebuild with `./gradlew build -Pmodule.*`, then
-      # `docker compose restart`.
-      - ../build/Ignition-MCP.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
+      # on every single restart. Rebuild with `./gradlew :modules:mcp:build -Pmodule.*`, then
+      # `docker compose restart` — never `up -d`, which recreates the container and takes the
+      # gateway's whole data directory (projects, API tokens) with it, since none is persisted.
+      - ../modules/mcp/build/Ignition-MCP.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
     environment:
       GATEWAY_ADMIN_PASSWORD: password
       IGNITION_EDITION: standard

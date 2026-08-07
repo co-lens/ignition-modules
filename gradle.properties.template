@@ -13,5 +13,6 @@ module.certFilePath=/path/to/cert.p7b
 module.certPw=changeme
 module.alias=your.alias
 
-# Target gateway for `./gradlew deployModl`. Defaults to http://localhost:18088.
-hostGateway=http://localhost:18088
+# CI-only. Turns the plugin's silent skip-signing behaviour into a build failure, so a missing
+# credential can never yield an unsigned release. Leave this out locally.
+#module.requireSigning=true
