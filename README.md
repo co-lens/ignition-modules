@@ -6,7 +6,10 @@ Ignition modules written in Kotlin, each carrying independent semver and release
 reference, Perspective editing, and contributor guides. This README is a pointer and a quickstart;
 the site is canonical for everything else.
 
-Requires **Ignition 8.3**.
+Requires **Ignition 8.3**. A time-limited **Ignition 8.1** port of the MCP module lives on the
+[`8.1/main`](https://github.com/co-lens/ignition-modules/tree/8.1/main) branch — same tools,
+different authentication, released as `Ignition-MCP-81-*.modl` under `mcp81-v*` tags. Unsupported
+after February 2027.
 
 ## Modules
 
@@ -24,7 +27,7 @@ gotchas and the Designer setup.
 [latest release](https://github.com/co-lens/ignition-modules/releases/latest):
 
 ```bash
-gh release download --repo co-lens/ignition-modules --pattern 'Ignition-MCP-*'
+gh release download --repo co-lens/ignition-modules --pattern 'Ignition-MCP-[0-9]*'
 sha256sum -c Ignition-MCP-*.modl.sha256
 ```
 

@@ -267,7 +267,9 @@ jobs:
           FINGERPRINT: ${{ steps.stage.outputs.fingerprint }}
         run: |
           set -euo pipefail
-          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag)
+          # --latest=true explicitly: the 8.1 line publishes into this same repo, and whichever
+          # release ran last would otherwise take the badge the README links to.
+          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag --latest=true)
           if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
 
           gh release create "$TAG" "${args[@]}" \

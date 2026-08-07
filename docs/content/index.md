@@ -10,7 +10,9 @@ sidebar_position: 1
 Ignition modules written in Kotlin, each carrying independent semver and released by its own tag.
 
 :::info Requires Ignition 8.3
-Every module here targets the 8.3 platform line.
+Every module here targets the 8.3 platform line. A time-limited **Ignition 8.1** port of the MCP
+module lives on the [`8.1/main`](https://github.com/co-lens/ignition-modules/tree/8.1/main)
+branch — same tools, different authentication. Unsupported after February 2027.
 :::
 
 ## Modules
