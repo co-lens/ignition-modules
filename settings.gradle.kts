@@ -25,3 +25,8 @@ include(
     ":modules:mcp:gateway",
     ":modules:mcp:designer",
 )
+
+// Build tooling, deliberately OUTSIDE any module's subtree. The modl plugin only wires projects
+// inside the project that applies it, so nothing here can end up in a shipped .modl, and no
+// module's `check` depends on it.
+include(":tools:tool-docs")

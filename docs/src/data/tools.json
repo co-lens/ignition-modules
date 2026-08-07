@@ -1,0 +1,1726 @@
+{
+  "schemaVersion": 1,
+  "ignitionVersion": "8.3.8",
+  "scopes": [
+    {
+      "id": "gateway",
+      "label": "Gateway",
+      "endpoint": "POST /data/mcp/mcp",
+      "groups": [
+        {
+          "id": "tags",
+          "label": "Tags",
+          "tools": [
+            {
+              "name": "list_tag_providers",
+              "title": "List tag providers",
+              "description": "Lists the tag providers configured on this gateway.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List tag providers",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "browse_tags",
+              "title": "Browse tags",
+              "description": "Browses the tag tree. Start at the root with an empty path, then drill in. Set recursive\u003dtrue to walk folders, bounded by maxDepth and limit.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Tag path to browse, e.g. \u0027[default]Area1/Line2\u0027. Empty browses the provider root."
+                  },
+                  "provider": {
+                    "type": "string",
+                    "description": "Tag provider name. Ignored when \u0027path\u0027 includes [provider]. Defaults to \u0027default\u0027."
+                  },
+                  "recursive": {
+                    "type": "boolean",
+                    "description": "Recurse into folders and UDT instances.",
+                    "default": false
+                  },
+                  "maxDepth": {
+                    "type": "integer",
+                    "description": "Maximum recursion depth when recursive.",
+                    "default": 3
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of nodes to return.",
+                    "default": 500
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Browse tags",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "read_tags",
+              "title": "Read tag values",
+              "description": "Reads current values for one or more tag paths, with quality and timestamp.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "paths": {
+                    "type": "array",
+                    "description": "Tag paths to read, e.g. [\u0027[default]Area1/Temp\u0027].",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "paths"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Read tag values",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "get_tag_config",
+              "title": "Get tag configuration",
+              "description": "Returns the full JSON configuration of tags or folders — data type, bindings, alarms, history settings and UDT parameters. Use this to understand how a tag is built, not just its current value.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "paths": {
+                    "type": "array",
+                    "description": "Tag or folder paths to fetch configuration for.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "recursive": {
+                    "type": "boolean",
+                    "description": "Include the configuration of child tags.",
+                    "default": false
+                  },
+                  "localOnly": {
+                    "type": "boolean",
+                    "description": "Exclude configuration inherited from a UDT definition.",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "paths"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get tag configuration",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "write_tags",
+              "title": "Write tag values",
+              "description": "Writes values to tags. This changes live process values — confirm the paths with read_tags first.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "writes": {
+                    "type": "array",
+                    "description": "Writes to perform.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "description": "Tag path to write, e.g. \u0027[default]Area1/Setpoint\u0027."
+                        },
+                        "value": {
+                          "description": "Value to write (string, number, boolean or null)."
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "value"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "writes"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Write tag values",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "projects",
+          "label": "Projects",
+          "tools": [
+            {
+              "name": "list_projects",
+              "title": "List projects",
+              "description": "Lists the projects on this gateway with their inheritance and enabled state.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List projects",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "list_project_resources",
+              "title": "List project resources",
+              "description": "Lists resources in a project. Filter by module id and/or resource type to narrow it down — for example moduleId \u0027com.inductiveautomation.perspective\u0027 with type \u0027views\u0027 lists Perspective views, and moduleId \u0027ignition\u0027 type \u0027script-python\u0027 lists project script modules. Call with no filter first to discover what types exist.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "description": "Only return resources owned by this module id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Only return resources of this resource type."
+                  },
+                  "pathContains": {
+                    "type": "string",
+                    "description": "Only return resources whose path contains this substring (case-insensitive)."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of resources to return.",
+                    "default": 500
+                  }
+                },
+                "required": [
+                  "project"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List project resources",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "read_project_resource",
+              "title": "Read a project resource",
+              "description": "Returns the contents of one project resource. Perspective views come back as view.json, Python scripts as code.py. Use list_project_resources to find the exact moduleId, type and path.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "moduleId": {
+                    "type": "string",
+                    "description": "Module id that owns the resource."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Resource type."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Resource path within the type, e.g. \u0027Page/Main\u0027."
+                  },
+                  "dataKey": {
+                    "type": "string",
+                    "description": "Which data file to read. Defaults to the resource\u0027s single/primary file."
+                  },
+                  "maxBytes": {
+                    "type": "integer",
+                    "description": "Truncate the returned content beyond this many bytes.",
+                    "default": 262144
+                  }
+                },
+                "required": [
+                  "project",
+                  "moduleId",
+                  "type",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Read a project resource",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            }
+          ]
+        },
+        {
+          "id": "data",
+          "label": "Data",
+          "tools": [
+            {
+              "name": "list_datasources",
+              "title": "List database connections",
+              "description": "Lists the gateway\u0027s database connections and their current status.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List database connections",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "run_query",
+              "title": "Run a SQL query",
+              "description": "Runs a SELECT against a gateway database connection and returns the rows. Use parameters rather than string-concatenating values. Row count is capped by \u0027limit\u0027. This tool refuses anything that isn\u0027t a SELECT or WITH — use it for analysis, not for changing data.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "datasource": {
+                    "type": "string",
+                    "description": "Database connection name (see list_datasources)."
+                  },
+                  "sql": {
+                    "type": "string",
+                    "description": "SQL to run. Use \u0027?\u0027 placeholders for parameters."
+                  },
+                  "params": {
+                    "type": "array",
+                    "description": "Values for the \u0027?\u0027 placeholders, in order.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum rows to return.",
+                    "default": 200
+                  }
+                },
+                "required": [
+                  "datasource",
+                  "sql"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Run a SQL query",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "query_tag_history",
+              "title": "Query tag history",
+              "description": "Queries the historian for one or more tags over a time window. Give either \u0027rangeMinutes\u0027 (relative to now) or explicit ISO-8601 \u0027startDate\u0027/\u0027endDate\u0027.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "paths": {
+                    "type": "array",
+                    "description": "Historical tag paths, e.g. [\u0027[default]Area1/Temp\u0027].",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "rangeMinutes": {
+                    "type": "integer",
+                    "description": "Look back this many minutes from now.",
+                    "default": 60
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "description": "ISO-8601 start, e.g. \u00272026-08-01T00:00:00Z\u0027. Overrides rangeMinutes."
+                  },
+                  "endDate": {
+                    "type": "string",
+                    "description": "ISO-8601 end. Defaults to now when startDate is given."
+                  },
+                  "aggregation": {
+                    "type": "string",
+                    "description": "Aggregation mode applied to each interval.",
+                    "enum": [
+                      "Average",
+                      "MinMax",
+                      "LastValue",
+                      "SimpleAverage",
+                      "Sum",
+                      "Minimum",
+                      "Maximum",
+                      "DurationOn",
+                      "DurationOff",
+                      "CountOn",
+                      "CountOff",
+                      "Count",
+                      "Range",
+                      "Variance",
+                      "StdDev",
+                      "PctGood",
+                      "PctBad"
+                    ],
+                    "default": "Average"
+                  },
+                  "returnSize": {
+                    "type": "integer",
+                    "description": "Number of intervals to return. Use 0 for raw on-change values.",
+                    "default": 100
+                  }
+                },
+                "required": [
+                  "paths"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Query tag history",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            }
+          ]
+        },
+        {
+          "id": "system",
+          "label": "System",
+          "tools": [
+            {
+              "name": "gateway_info",
+              "title": "Gateway info",
+              "description": "Overall gateway status: version, edition, redundancy role, running state and licensed tag usage. Start here when diagnosing a gateway you don\u0027t know.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Gateway info",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "list_modules",
+              "title": "List modules",
+              "description": "Lists installed gateway modules with version and running state, including any fault reason for modules that failed to start.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List modules",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "query_logs",
+              "title": "Query gateway logs",
+              "description": "Searches the gateway\u0027s log. This is usually the fastest way to find out why something is failing. Narrow with minLevel and searchTerms rather than pulling everything.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "minLevel": {
+                    "type": "string",
+                    "description": "Minimum severity to include.",
+                    "enum": [
+                      "TRACE",
+                      "DEBUG",
+                      "INFO",
+                      "WARN",
+                      "ERROR",
+                      "FATAL"
+                    ],
+                    "default": "WARN"
+                  },
+                  "loggers": {
+                    "type": "array",
+                    "description": "Only include these logger names (exact match).",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "searchTerms": {
+                    "type": "array",
+                    "description": "Only include events whose message contains these terms.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "rangeMinutes": {
+                    "type": "integer",
+                    "description": "Look back this many minutes from now.",
+                    "default": 60
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum events to return.",
+                    "default": 100
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Query gateway logs",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "list_active_alarms",
+              "title": "List active alarms",
+              "description": "Returns the gateway\u0027s current alarm status — what is active and what is unacknowledged right now.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum alarms to return.",
+                    "default": 200
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List active alarms",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "run_script",
+              "title": "Run a Jython script (gateway scope)",
+              "description": "Executes Python (Jython) in gateway scope with the project\u0027s script context, giving access to the whole system.* API. This is arbitrary code execution on the gateway — prefer a purpose-built tool when one exists, and read the script back to the user before running it. Assign to a variable named \u0027result\u0027 to return a value.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "script": {
+                    "type": "string",
+                    "description": "Jython source to execute."
+                  },
+                  "project": {
+                    "type": "string",
+                    "description": "Project whose script context to run in. Defaults to the first project."
+                  }
+                },
+                "required": [
+                  "script"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Run a Jython script (gateway scope)",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "reset_trial",
+              "title": "Reset the gateway trial timer",
+              "description": "Restarts the gateway\u0027s two-hour trial countdown — the same action as the \u0027Reset Trial\u0027 button on the gateway home page. By default this only works once the trial has actually expired, which is the rule Ignition itself enforces; pass force\u003dtrue to top the timer up mid-session. Refused on an activated gateway, where there is no trial to reset. Use this when gateway_info shows demoTimeRemaining at 0 and tags, history or Perspective have stopped working.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "force": {
+                    "type": "boolean",
+                    "description": "Reset even if the trial hasn\u0027t expired yet, topping the timer back up to two hours.",
+                    "default": false
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Reset the gateway trial timer",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "perspective",
+          "label": "Perspective",
+          "tools": [
+            {
+              "name": "perspective_list_views",
+              "title": "List Perspective views",
+              "description": "Lists the Perspective views in a project, with the number of components in each.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "pathContains": {
+                    "type": "string",
+                    "description": "Only return views whose path contains this substring."
+                  }
+                },
+                "required": [
+                  "project"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List Perspective views",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_get_view",
+              "title": "Get a Perspective view",
+              "description": "Returns a view\u0027s parameters, view-level custom properties and its component tree. Each tree entry carries the path you pass to the other perspective_ tools, plus which properties are bound and how many events are attached. Start here before editing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  }
+                },
+                "required": [
+                  "project",
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get a Perspective view",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_get_component",
+              "title": "Get a Perspective component",
+              "description": "Returns one component in full: type, props, custom properties, bindings (from propConfig), events, position and the names of its children.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, e.g. \u0027root/FlexContainer/Label\u0027."
+                  }
+                },
+                "required": [
+                  "project",
+                  "view",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get a Perspective component",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_list_component_types",
+              "title": "List Perspective component types",
+              "description": "Lists the component types registered on this system, which is what perspective_add_component will accept. Filter by category or a substring of the id.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "description": "Only return components in this palette category."
+                  },
+                  "idContains": {
+                    "type": "string",
+                    "description": "Only return components whose id contains this substring."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List Perspective component types",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_get_component_type",
+              "title": "Get a Perspective component type",
+              "description": "Returns a component type\u0027s default properties, events and extension functions. \u0027defaultProperties\u0027 is the shape a new instance starts with and is the best reference for what the component accepts; perspective_validate_view then enforces the component\u0027s real JSON schema.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "typeId": {
+                    "type": "string",
+                    "description": "Component type id, e.g. \u0027ia.display.label\u0027."
+                  }
+                },
+                "required": [
+                  "typeId"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get a Perspective component type",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_validate_view",
+              "title": "Validate a Perspective view",
+              "description": "Checks a view against the component registry and Perspective\u0027s own JSON schemas, and reports the authoring mistakes that break views silently — bindings left in props instead of propConfig, \u0027bidirectional\u0027 at the wrong nesting level, and event scripts missing their leading tab indentation. Each finding says how to fix it.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  }
+                },
+                "required": [
+                  "project",
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Validate a Perspective view",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_list_sessions",
+              "title": "List Perspective sessions",
+              "description": "Lists the Perspective sessions currently running on this gateway, with their ids, project, user and open page count. Use an id with perspective_diagnose_live_view.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Only return sessions for this project."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List Perspective sessions",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_diagnose_live_view",
+              "title": "Diagnose a running Perspective view",
+              "description": "For a view open in a running session, reports every configured property alongside its binding and its CURRENT value and quality. This is how you find out why a binding isn\u0027t working: Perspective reports binding failures as bad quality rather than as errors, so a bad quality next to its binding config is usually the whole answer. Only views a user currently has open are visible.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "Session id from perspective_list_sessions."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "Only report views whose path contains this substring."
+                  }
+                },
+                "required": [
+                  "sessionId"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Diagnose a running Perspective view",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "designer",
+      "label": "Designer",
+      "endpoint": "POST http://127.0.0.1:\u003cport\u003e/mcp",
+      "groups": [
+        {
+          "id": "designer",
+          "label": "Designer",
+          "tools": [
+            {
+              "name": "designer_info",
+              "title": "Designer info",
+              "description": "Which project this Designer has open, and how many unsaved changes it holds.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Designer info",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "list_resources",
+              "title": "List resources in the open project",
+              "description": "Lists project resources as the Designer currently sees them, including unsaved edits. Filter by moduleId and/or type; call with no filter first to see which types exist.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "description": "Only return resources owned by this module id."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Only return resources of this resource type."
+                  },
+                  "pathContains": {
+                    "type": "string",
+                    "description": "Only return resources whose path contains this substring (case-insensitive)."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of resources to return.",
+                    "default": 500
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List resources in the open project",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "read_resource",
+              "title": "Read a resource from the open project",
+              "description": "Returns a resource\u0027s contents as the Designer sees it, including unsaved edits. Perspective views come back as view.json, scripts as code.py.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "description": "Module id that owns the resource."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Resource type."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Resource path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "dataKey": {
+                    "type": "string",
+                    "description": "Which data file to read. Defaults to the resource\u0027s primary file."
+                  },
+                  "maxBytes": {
+                    "type": "integer",
+                    "description": "Truncate the returned content beyond this many bytes.",
+                    "default": 262144
+                  }
+                },
+                "required": [
+                  "moduleId",
+                  "type",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Read a resource from the open project",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "list_pending_changes",
+              "title": "List unsaved Designer changes",
+              "description": "Lists edits made in this Designer that have not been saved to the gateway yet. Use this to review what write_resource has staged before telling the user to save.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List unsaved Designer changes",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "write_resource",
+              "title": "Create or update a resource in the open Designer",
+              "description": "Writes a project resource in the open Designer. The edit is NOT committed — it appears as an unsaved change for the user to review and save, which is the point: keep a human in the loop. Read the resource first so you preserve its existing shape.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "description": "Module id that owns the resource."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Resource type."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Resource path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "New contents for the resource."
+                  },
+                  "dataKey": {
+                    "type": "string",
+                    "description": "Which data file to write. Defaults to the resource\u0027s primary file, or \u0027data.json\u0027 when creating a new resource."
+                  }
+                },
+                "required": [
+                  "moduleId",
+                  "type",
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Create or update a resource in the open Designer",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "delete_resource",
+              "title": "Delete a resource in the open Designer",
+              "description": "Deletes a project resource in the open Designer. Like write_resource, this is staged as an unsaved change rather than committed.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "description": "Module id that owns the resource."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Resource type."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Resource path to delete."
+                  }
+                },
+                "required": [
+                  "moduleId",
+                  "type",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Delete a resource in the open Designer",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "perspective",
+          "label": "Perspective",
+          "tools": [
+            {
+              "name": "perspective_list_views",
+              "title": "List Perspective views",
+              "description": "Lists the Perspective views in a project, with the number of components in each.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "pathContains": {
+                    "type": "string",
+                    "description": "Only return views whose path contains this substring."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List Perspective views",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_get_view",
+              "title": "Get a Perspective view",
+              "description": "Returns a view\u0027s parameters, view-level custom properties and its component tree. Each tree entry carries the path you pass to the other perspective_ tools, plus which properties are bound and how many events are attached. Start here before editing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  }
+                },
+                "required": [
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get a Perspective view",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_get_component",
+              "title": "Get a Perspective component",
+              "description": "Returns one component in full: type, props, custom properties, bindings (from propConfig), events, position and the names of its children.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, e.g. \u0027root/FlexContainer/Label\u0027."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get a Perspective component",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_list_component_types",
+              "title": "List Perspective component types",
+              "description": "Lists the component types registered on this system, which is what perspective_add_component will accept. Filter by category or a substring of the id.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "description": "Only return components in this palette category."
+                  },
+                  "idContains": {
+                    "type": "string",
+                    "description": "Only return components whose id contains this substring."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "List Perspective component types",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_get_component_type",
+              "title": "Get a Perspective component type",
+              "description": "Returns a component type\u0027s default properties, events and extension functions. \u0027defaultProperties\u0027 is the shape a new instance starts with and is the best reference for what the component accepts; perspective_validate_view then enforces the component\u0027s real JSON schema.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "typeId": {
+                    "type": "string",
+                    "description": "Component type id, e.g. \u0027ia.display.label\u0027."
+                  }
+                },
+                "required": [
+                  "typeId"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Get a Perspective component type",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_validate_view",
+              "title": "Validate a Perspective view",
+              "description": "Checks a view against the component registry and Perspective\u0027s own JSON schemas, and reports the authoring mistakes that break views silently — bindings left in props instead of propConfig, \u0027bidirectional\u0027 at the wrong nesting level, and event scripts missing their leading tab indentation. Each finding says how to fix it.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  }
+                },
+                "required": [
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Validate a Perspective view",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_create_view",
+              "title": "Create a Perspective view",
+              "description": "Creates a new view with an empty root container. Defaults for the container come from the component registry, so the view opens correctly in the Designer.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path to create, e.g. \u0027Page/Main\u0027."
+                  },
+                  "rootType": {
+                    "type": "string",
+                    "description": "Root container type.",
+                    "default": "ia.container.flex"
+                  },
+                  "width": {
+                    "type": "integer",
+                    "description": "Default width.",
+                    "default": 800
+                  },
+                  "height": {
+                    "type": "integer",
+                    "description": "Default height.",
+                    "default": 600
+                  }
+                },
+                "required": [
+                  "view"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Create a Perspective view",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "perspective_add_component",
+              "title": "Add a Perspective component",
+              "description": "Adds a component to a container. Default properties and the child position shape both come from the registry — position depends on the PARENT container type, so letting this tool supply it is what makes the component lay out correctly. The name is made unique among its siblings automatically.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "parentPath": {
+                    "type": "string",
+                    "description": "Container to add to, e.g. \u0027root\u0027 or \u0027root/FlexContainer\u0027."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Component type id, e.g. \u0027ia.display.label\u0027."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Component name. Defaults to the type\u0027s default, made unique."
+                  },
+                  "props": {
+                    "type": "object",
+                    "description": "Property values to set, merged over the type\u0027s defaults."
+                  },
+                  "position": {
+                    "type": "object",
+                    "description": "Position overrides, merged over the parent\u0027s child defaults."
+                  },
+                  "index": {
+                    "type": "integer",
+                    "description": "Insert at this child index. Appends when omitted."
+                  }
+                },
+                "required": [
+                  "view",
+                  "parentPath",
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Add a Perspective component",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_update_component",
+              "title": "Update a Perspective component",
+              "description": "Merges values into a component\u0027s props and/or position, and optionally renames it. Merging is recursive, so nested objects like \u0027style\u0027 keep the keys you don\u0027t mention.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, e.g. \u0027root/Label\u0027."
+                  },
+                  "props": {
+                    "type": "object",
+                    "description": "Property values to merge in."
+                  },
+                  "position": {
+                    "type": "object",
+                    "description": "Position values to merge in."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Rename the component to this."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Update a Perspective component",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_move_component",
+              "title": "Move a Perspective component",
+              "description": "Reparents or reorders a component. Its props, bindings and events move with it.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component to move."
+                  },
+                  "newParentPath": {
+                    "type": "string",
+                    "description": "Container to move it into."
+                  },
+                  "index": {
+                    "type": "integer",
+                    "description": "Insert at this child index. Appends when omitted."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "newParentPath"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Move a Perspective component",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_delete_component",
+              "title": "Delete a Perspective component",
+              "description": "Deletes a component and everything under it.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component to delete."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Delete a Perspective component",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "perspective_set_custom_property",
+              "title": "Set a custom property",
+              "description": "Adds or updates a custom property on a component, or on the view itself when path is \u0027view\u0027. Custom properties are where you put values that bindings and scripts share.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, or \u0027view\u0027 for a view-level property."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Property name."
+                  },
+                  "value": {
+                    "description": "Property value: any JSON."
+                  },
+                  "persistent": {
+                    "type": "boolean",
+                    "description": "Whether the value is saved with the view.",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Set a custom property",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_delete_custom_property",
+              "title": "Delete a custom property",
+              "description": "Removes a custom property and any binding attached to it.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, or \u0027view\u0027 for a view-level property."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Property name."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Delete a custom property",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "perspective_set_binding",
+              "title": "Set a binding",
+              "description": "Binds a property. The binding is written to propConfig (never into props, which is where hand-written views usually go wrong) and its config is validated against Perspective\u0027s schema for that binding type before anything is staged. For a bidirectional tag binding put \u0027bidirectional\u0027: true inside config, not beside it.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, or \u0027view\u0027 for a view-level property."
+                  },
+                  "property": {
+                    "type": "string",
+                    "description": "Scoped property key, e.g. \u0027props.text\u0027 or \u0027custom.value\u0027."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Binding type, e.g. \u0027tag\u0027, \u0027expr\u0027, \u0027property\u0027, \u0027query\u0027."
+                  },
+                  "config": {
+                    "type": "object",
+                    "description": "Binding config, e.g. {\"tagPath\": \"[default]A\"} for a tag binding."
+                  },
+                  "transforms": {
+                    "type": "array",
+                    "description": "Optional transforms applied in order.",
+                    "items": {
+                      "type": "object",
+                      "description": "A transform, e.g. {\"type\": \"format\", \"config\": {...}}."
+                    }
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Whether the binding is active.",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "property",
+                  "type",
+                  "config"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Set a binding",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_delete_binding",
+              "title": "Delete a binding",
+              "description": "Removes a property\u0027s binding, leaving the property and its current value.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, or \u0027view\u0027."
+                  },
+                  "property": {
+                    "type": "string",
+                    "description": "Scoped property key, e.g. \u0027props.text\u0027."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "property"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Delete a binding",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "perspective_set_event",
+              "title": "Set an event script",
+              "description": "Attaches a script to a component event. Write the script body without indentation and it is indented for you — Perspective event scripts are function bodies, so an unindented line is a syntax error at runtime, and this tool makes that mistake impossible.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path."
+                  },
+                  "eventGroup": {
+                    "type": "string",
+                    "description": "Event group, e.g. \u0027dom\u0027 or \u0027component\u0027.",
+                    "default": "dom"
+                  },
+                  "eventName": {
+                    "type": "string",
+                    "description": "Event name, e.g. \u0027onClick\u0027."
+                  },
+                  "script": {
+                    "type": "string",
+                    "description": "Python body. Leading tabs are added if missing."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "eventName",
+                  "script"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Set an event script",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_delete_event",
+              "title": "Delete an event script",
+              "description": "Removes a script from a component event.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path."
+                  },
+                  "eventGroup": {
+                    "type": "string",
+                    "description": "Event group.",
+                    "default": "dom"
+                  },
+                  "eventName": {
+                    "type": "string",
+                    "description": "Event name."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "eventName"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Delete an event script",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "perspective_set_change_script",
+              "title": "Set a property-change script",
+              "description": "Runs a script whenever a property changes. Like event scripts the body is indented for you. The script receives \u0027currentValue\u0027, \u0027previousValue\u0027 and \u0027origin\u0027.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "path": {
+                    "type": "string",
+                    "description": "Component path, or \u0027view\u0027."
+                  },
+                  "property": {
+                    "type": "string",
+                    "description": "Scoped property key, e.g. \u0027custom.value\u0027."
+                  },
+                  "script": {
+                    "type": "string",
+                    "description": "Python body. Leading tabs are added if missing."
+                  }
+                },
+                "required": [
+                  "view",
+                  "path",
+                  "property",
+                  "script"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Set a property-change script",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_set_view_param",
+              "title": "Set a view parameter",
+              "description": "Declares a view parameter and its direction. Input parameters are passed in when the view is embedded; output parameters are read back out.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "View path, e.g. \u0027Page/Main\u0027."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Parameter name."
+                  },
+                  "value": {
+                    "description": "Default value: any JSON."
+                  },
+                  "direction": {
+                    "type": "string",
+                    "description": "Parameter direction.",
+                    "enum": [
+                      "input",
+                      "output",
+                      "inout"
+                    ],
+                    "default": "input"
+                  }
+                },
+                "required": [
+                  "view",
+                  "name",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Set a view parameter",
+                "readOnlyHint": false,
+                "destructiveHint": false
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
