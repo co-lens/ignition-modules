@@ -210,13 +210,29 @@ read-only endpoint is backed by a registry without the mutating tools, calling `
 through it fails with `Unknown tool`, not a permission error.
 
 For the Designer, use the command from **Tools → MCP Connection Info…**, which carries the live
-port and secret:
+host, port and secret:
 
 ```bash
 claude mcp add --transport http ignition-designer \
   http://127.0.0.1:<port>/mcp \
   --header "Authorization: Bearer <secret>"
 ```
+
+### Reaching a Designer on another machine
+
+The bridge binds to loopback on an OS-assigned port, which assumes the MCP client runs on the
+same machine as the Designer. When it doesn't — a Designer in a VM, or on a workstation you're
+driving remotely — two JVM arguments on the Designer opt out of that:
+
+```
+-Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.port=8770
+```
+
+Both default to the safe behaviour and the module logs a warning when you widen the bind.
+Loopback-only is the right default because the bearer secret in the discovery file is the *only*
+credential; once the endpoint is reachable from the network, that secret is all that protects it.
+Pair it with a firewall rule or a forwarded port rather than leaving it open, and don't carry
+this into production.
 
 ### MCP Inspector
 

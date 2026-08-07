@@ -13,14 +13,15 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ThreadPoolExecutor
 
 /**
- * A loopback-only HTTP front end for [McpServer], using the JDK's own `com.sun.net.httpserver`.
+ * An HTTP front end for [McpServer], using the JDK's own `com.sun.net.httpserver`.
  *
  * That module (`jdk.httpserver`) is present in every JRE Ignition 8.3 ships — Linux, macOS and
  * Windows all carry it — so the Designer scope needs no HTTP dependency at all.
  *
- * Security posture: bound to the loopback interface only, and every request must carry
- * `Authorization: Bearer <secret>` where the secret is generated per Designer session and
- * written to an owner-readable file. Origin checking happens inside [McpServer].
+ * Security posture: loopback-only by default, and every request must carry
+ * `Authorization: Bearer <secret>` where the secret is generated per Designer session and written
+ * to an owner-readable file. Origin checking happens inside [McpServer]. [start] documents the
+ * opt-in for binding wider, which trades that first line of defence for reachability.
  */
 class McpHttpServer(private val mcp: McpServer, private val secret: String) {
 
@@ -29,19 +30,65 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
 
     val port: Int get() = server?.address?.port ?: -1
 
-    /** Starts on an OS-assigned loopback port. Returns the port. */
+    /** The address actually bound, for the discovery file and the connect dialog. */
+    var boundHost: String = "127.0.0.1"
+        private set
+
+    /**
+     * Starts the endpoint. Loopback on an OS-assigned port by default; both are overridable so a
+     * Designer running on another machine (a VM, a jump box) can still be reached:
+     *
+     * ```
+     * -Dmcp.designer.bindAddress=0.0.0.0
+     * -Dmcp.designer.port=8770
+     * ```
+     *
+     * Binding beyond loopback exposes the endpoint to anything that can route to this machine.
+     * The bearer secret is then the only thing protecting it, so this is opt-in, logged loudly,
+     * and should be paired with a firewall rule or a forwarded port rather than left wide open.
+     */
     fun start(path: String = "/mcp"): Int {
-        // Port 0 lets the OS pick a free port atomically — no scan loop, no bind races.
-        val http = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        val requestedHost = System.getProperty(BIND_ADDRESS_PROPERTY)?.trim()?.takeIf { it.isNotEmpty() }
+        // Port 0 lets the OS pick a free port atomically — no scan loop, no bind races. A fixed
+        // port only makes sense when someone needs to forward or firewall it.
+        val requestedPort = System.getProperty(PORT_PROPERTY)?.trim()?.toIntOrNull() ?: 0
+
+        val address = if (requestedHost == null) {
+            InetSocketAddress(InetAddress.getLoopbackAddress(), requestedPort)
+        } else {
+            InetSocketAddress(InetAddress.getByName(requestedHost), requestedPort)
+        }
+
+        val http = HttpServer.create(address, 0)
         http.createContext(path) { exchange -> handle(exchange) }
         http.executor = Executors.newFixedThreadPool(4) { runnable ->
             Thread(runnable, "mcp-designer-http").apply { isDaemon = true }
         }
         http.start()
         server = http
-        logger.info("Designer MCP endpoint listening on http://127.0.0.1:{}{}", http.address.port, path)
+        boundHost = requestedHost ?: "127.0.0.1"
+
+        if (requestedHost != null && !isLoopback(requestedHost)) {
+            logger.warn(
+                "Designer MCP endpoint is bound to {}:{} — reachable beyond this machine. The " +
+                    "bearer secret in the discovery file is the only thing protecting it; restrict " +
+                    "access with a firewall rule or a forwarded port.",
+                boundHost,
+                http.address.port,
+            )
+        } else {
+            logger.info(
+                "Designer MCP endpoint listening on http://{}:{}{}",
+                boundHost,
+                http.address.port,
+                path,
+            )
+        }
         return http.address.port
     }
+
+    private fun isLoopback(host: String): Boolean =
+        host == "127.0.0.1" || host.equals("localhost", ignoreCase = true) || host == "::1"
 
     fun stop() {
         server?.let { http ->
@@ -105,7 +152,13 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         }
     }
 
-    private companion object {
-        const val BEARER_PREFIX = "Bearer "
+    companion object {
+        private const val BEARER_PREFIX = "Bearer "
+
+        /** Opt in to binding beyond loopback, e.g. `0.0.0.0` for a Designer in a VM. */
+        const val BIND_ADDRESS_PROPERTY = "mcp.designer.bindAddress"
+
+        /** Pin the port so it can be forwarded or firewalled. Defaults to OS-assigned. */
+        const val PORT_PROPERTY = "mcp.designer.port"
     }
 }

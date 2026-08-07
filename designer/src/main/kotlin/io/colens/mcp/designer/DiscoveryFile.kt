@@ -73,11 +73,12 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
         }
     }
 
-    fun write(port: Int, project: String?, gatewayAddress: String?) {
+    fun write(port: Int, host: String, project: String?, gatewayAddress: String?) {
         val json = jsonObject {
             put("pid", pid)
             put("port", port)
-            put("url", "http://127.0.0.1:$port/mcp")
+            put("host", host)
+            put("url", "http://$host:$port/mcp")
             put("secret", secret)
             put("project", project)
             put("gateway", gatewayAddress)

@@ -25,7 +25,7 @@ class ConnectDialog(
     private val endpoint: () -> Endpoint?,
 ) {
 
-    data class Endpoint(val port: Int, val secret: String, val discoveryFile: String)
+    data class Endpoint(val host: String, val port: Int, val secret: String, val discoveryFile: String)
 
     // Note: the listener must not call a method named `show()` — inside `apply` on a JMenuItem
     // that resolves to the deprecated Component.show() instead of ours.
@@ -47,7 +47,7 @@ class ConnectDialog(
 
         val command = buildString {
             append("claude mcp add --transport http ignition-designer ")
-            append("http://127.0.0.1:${current.port}/mcp ")
+            append("http://${current.host}:${current.port}/mcp ")
             append("--header \"Authorization: Bearer ${current.secret}\"")
         }
 
@@ -66,7 +66,7 @@ class ConnectDialog(
                 JPanel().apply {
                     layout = BoxLayout(this, BoxLayout.Y_AXIS)
                     add(JLabel("<html><b>Project:</b> ${context.projectName}</html>"))
-                    add(JLabel("<html><b>Endpoint:</b> http://127.0.0.1:${current.port}/mcp</html>"))
+                    add(JLabel("<html><b>Endpoint:</b> http://${current.host}:${current.port}/mcp</html>"))
                     add(JLabel("<html><b>Discovery file:</b> ${current.discoveryFile}</html>"))
                 },
                 BorderLayout.NORTH,

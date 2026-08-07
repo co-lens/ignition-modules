@@ -79,11 +79,12 @@ class DesignerHook : AbstractDesignerModuleHook() {
         }
 
         httpServer = server
-        discoveryFile.write(port, context.projectName, gatewayAddress())
+        discoveryFile.write(port, server.boundHost, context.projectName, gatewayAddress())
 
         logger.info(
-            "Ignition MCP Designer endpoint ready: {} tools on http://127.0.0.1:{}/mcp",
+            "Ignition MCP Designer endpoint ready: {} tools on http://{}:{}/mcp",
             registry.size,
+            server.boundHost,
             port,
         )
     }
@@ -103,7 +104,7 @@ class DesignerHook : AbstractDesignerModuleHook() {
             if (server == null || disc == null || server.port <= 0) {
                 null
             } else {
-                ConnectDialog.Endpoint(server.port, disc.secret, disc.path.toString())
+                ConnectDialog.Endpoint(server.boundHost, server.port, disc.secret, disc.path.toString())
             }
         }
         connectDialog = dialog
