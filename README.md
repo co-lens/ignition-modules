@@ -6,6 +6,104 @@ resources, SQL, tag history, alarms, logs) and, optionally, to a running Designe
 
 Requires **Ignition 8.3**.
 
+## Getting started
+
+Four steps: build the module, install it on your gateway, issue an API token, point your client at
+it. Budget ten minutes.
+
+You need an Ignition 8.3 gateway you can restart, and an MCP client — the examples use
+[Claude Code](https://claude.com/claude-code), but any client that speaks Streamable HTTP works.
+
+### 1. Build the module
+
+There is no published release yet, so build it:
+
+```bash
+git clone https://github.com/co-lens/mcp-ignition.git
+cd mcp-ignition
+./gradlew build
+```
+
+That produces `build/Ignition-MCP.unsigned.modl`. **Sign it if you can** — an unsigned module has
+no certificate fingerprint for the gateway to remember, so 8.3 re-prompts for commissioning on
+every restart and never reaches RUNNING unattended. [Build](#build) has a three-command
+self-signed recipe; signing turns the output into `build/Ignition-MCP.modl`.
+
+### 2. Install it on the gateway
+
+Upload the `.modl` from the gateway's **Config → Modules** page and accept the certificate when
+prompted. Or drop the file straight into the module folder and restart:
+
+```bash
+cp build/Ignition-MCP.modl /usr/local/bin/ignition/user-lib/modules/
+```
+
+If you're installing the **unsigned** build, the gateway must be started with
+`-Dignition.allowunsignedmodules=true` or it will refuse to load it.
+
+Confirm it came up — this endpoint needs no auth:
+
+```bash
+curl -s http://<gateway>:8088/data/mcp/health
+# {"status":"ok","server":"ignition-mcp","version":"...","mcpEndpoint":"/data/mcp/mcp",...}
+```
+
+`"status":"starting"` means the module loaded but the hook hasn't finished; a 404 means it didn't
+load at all — check the gateway log for `mcp.Gateway`.
+
+### 3. Create an API token
+
+**Config → Security → API Tokens**. A default token (security level `Authenticated`, no extra
+permissions) is all the read-only endpoint needs. The token is `<keyId>:<secret>`.
+
+> **Gotcha that costs everyone an hour:** new tokens default to **Require Secure Channel**, which
+> makes them fail with `401` over plain HTTP no matter what else is correct. Use HTTPS, or untick
+> that box for a local gateway.
+
+Start read-only. The write endpoint additionally requires the gateway's **write** permission,
+which by default means the `Administrator` role — and a write token can call `run_script`, i.e.
+arbitrary Jython in gateway scope. That is gateway root. Issue one deliberately or not at all.
+
+### 4. Connect your client
+
+```bash
+claude mcp add --transport http ignition \
+  http://<gateway>:8088/data/mcp/mcp-readonly \
+  --header "X-Ignition-API-Token: <keyId>:<secret>"
+```
+
+Verify by hand before trusting it:
+
+```bash
+curl -s -X POST http://<gateway>:8088/data/mcp/mcp-readonly \
+  -H 'X-Ignition-API-Token: <keyId>:<secret>' \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
+```
+
+A list of tool names means you're done. Ask your client something like *"what tag providers does
+this gateway have?"* and it will call `list_tag_providers` on its own.
+
+For write access, swap the URL to `/data/mcp/mcp` and use a token carrying the write permission.
+An ordinary token should get **403** there while still getting **200** on `/mcp-readonly` — that
+pair of checks validates the whole auth story in one go.
+
+### Optional: connect a Designer
+
+The gateway sees saved project state. A Designer additionally exposes *unsaved* edits, and its
+write tools **stage** changes for a human to review rather than committing them. Install the same
+module (it carries both scopes), open a project, then use **Tools → MCP Connection Info…** for a
+ready-to-paste command. See [Designer endpoint](#designer-endpoint), and
+[Reaching a Designer on another machine](#reaching-a-designer-on-another-machine) if the Designer
+isn't on the same host as your client.
+
+### Where to go next
+
+[Gateway endpoints](#gateway-endpoints) for the tool inventory · [Perspective](#perspective) for
+view editing and diagnostics · [Dev gateway](#dev-gateway) for a throwaway Docker gateway ·
+[Adding a tool](#adding-a-tool) to extend it.
+
 ## Why it's small
 
 The whole module is about 2,500 lines of Kotlin across 17 files, because three things fell out
@@ -35,7 +133,7 @@ of the design rather than being built:
 
 | Endpoint | Auth | Tools |
 |---|---|---|
-| `POST /data/mcp/mcp` | API token with gateway **write** permission | all 16 |
+| `POST /data/mcp/mcp` | API token with gateway **write** permission | all 17 |
 | `POST /data/mcp/mcp-readonly` | any valid API token | the 14 read-only ones |
 | `GET /data/mcp/health` | none | status/version |
 
@@ -50,7 +148,8 @@ the mutating tools, so a read-scoped token can't list *or* call them.
 
 **Data** — `list_datasources`, `run_query` (SELECT/WITH only), `query_tag_history`
 
-**System** — `gateway_info`, `list_modules`, `query_logs`, `list_active_alarms`, **`run_script`**
+**System** — `gateway_info`, `list_modules`, `query_logs`, `list_active_alarms`, **`run_script`**,
+**`reset_trial`**
 
 **Perspective** (present only when Perspective is installed) — `perspective_list_views`,
 `perspective_get_view`, `perspective_get_component`, `perspective_list_component_types`,
@@ -174,6 +273,27 @@ included — and are miserable to diagnose:
   addition to it, with the same effect.
 
 Then `curl -s http://localhost:18088/data/mcp/health` should return `{"status":"ok",...}`.
+
+### Trial expiry
+
+An unlicensed gateway stops after two hours. `reset_trial` restarts that countdown — the same
+action as the **Reset Trial** button on the gateway home page, calling the same
+`LicenseManagerImpl.resetTrial()` Ignition's own web route calls, under the same rule that the
+timer must have run out first. Pass `force=true` to top it up mid-session instead. It is refused
+on an activated gateway, where there is no trial to reset.
+
+For an unattended dev loop, a watchdog can do it for you:
+
+```
+-Dmcp.trialWatchdog=true                 # off by default
+-Dmcp.trialWatchdog.intervalSeconds=30   # default 30, floor 5
+```
+
+It polls `demoTimeRemaining` and resets once the trial has expired. Automating a button Ignition
+ships is not circumventing a licence check, but running it forever unattended turns a deliberately
+time-boxed trial into an unbounded one — so it is opt-in, refuses to start on an activated gateway,
+and logs at WARN both at startup and on every reset, under the logger `mcp.Gateway.Trial`. Use it
+on a throwaway dev gateway; licence anything a customer touches.
 
 ## Connecting a client
 
