@@ -136,6 +136,19 @@ Don't restore these — each one actively breaks on this branch:
 - **`.github/dependabot.yml`** — read only from the default branch, so it was inert. The
   consequence is intended: **this branch gets no automated dependency updates.**
 
+## When this branch is deleted
+
+1. `git push origin --delete 8.1/main` — the only load-bearing step. Every CI trigger for this
+   line stops immediately, because the trigger *is* the branch.
+2. On `main`, `git revert 4394149` — the commit that added the pointers to `main`'s README and
+   docs site.
+3. `docker compose -p ignition-mcp-81 down -v`.
+4. **Keep the releases and tags.** Deleting a release breaks every download URL someone has
+   scripted, and GitHub issues no redirect. Annotate them "unsupported since 2027-02" instead.
+
+What survives: every release asset at its permanent URL, and every `mcp81-v*` tag — `git checkout
+mcp81-v0.1.0` still yields this whole tree. **The tags are the archive; the branch is not.**
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
