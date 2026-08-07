@@ -134,14 +134,15 @@ class DataTools(private val context: GatewayContext) {
                     ?: throw McpArgumentException("Unknown aggregation mode '$it'")
             } ?: AggregationMode.Average
 
-            val params = BasicTagHistoryQueryParams.newBuilder()
-                .paths(paths)
-                .startDate(Date.from(start))
-                .endDate(Date.from(end))
-                .returnSize(args.optInt("returnSize", 100))
-                .aggregationMode(aggregation)
-                .returnFormat(ReturnFormat.Wide)
-                .build()
+            // 8.1's BasicTagHistoryQueryParams is a mutable bean; the fluent builder is 8.3+.
+            val params = BasicTagHistoryQueryParams().apply {
+                setPaths(paths)
+                startDate = Date.from(start)
+                endDate = Date.from(end)
+                returnSize = args.optInt("returnSize", 100)
+                aggregationMode = aggregation
+                returnFormat = ReturnFormat.Wide
+            }
 
             val collector = DatasetCollector()
             context.tagHistoryManager.queryHistory(params, collector)

@@ -60,7 +60,7 @@ class SystemTools(private val context: GatewayContext) {
                 put("isMaster", runCatching { context.redundancyManager?.isMaster }.getOrNull())
                 put("moduleCount", context.moduleManager?.moduleCount)
                 put("tagProviders", jsonArrayOfStrings(context.tagManager.tagProviderNames))
-                put("projects", jsonArrayOfStrings(context.projectManager.names))
+                put("projects", jsonArrayOfStrings(context.projectManager.projectNames))
                 put("licensedTagCount", runCatching { context.tagManager.licensedTagCount }.getOrNull())
                 put("licensedTagLimit", runCatching { context.tagManager.licensedTagLimit }.getOrNull())
             }
@@ -214,7 +214,7 @@ class SystemTools(private val context: GatewayContext) {
         handler = { args ->
             val source = args.requireString("script")
             val project = args.optString("project")
-                ?: context.projectManager.names.firstOrNull()
+                ?: context.projectManager.projectNames.firstOrNull()
                 ?: throw McpArgumentException("No projects on this gateway; specify 'project'.")
 
             val scriptManager = context.projectManager.getProjectScriptManager(project)

@@ -1,6 +1,15 @@
 package io.colens.mcp.common
 
 object Constants {
+
+    /**
+     * 8.1's `ProjectResource` has no `DEFAULT_JSON_KEY` — only `DEFAULT_DATA_KEY` ("data.bin").
+     * This is the literal value 8.3's constant carries, read off `common-8.3.8.jar`, kept here so
+     * the two call sites can't drift. It matters most in `write_resource`, where it is the key a
+     * brand-new resource is created under: a wrong value there produces a resource the Designer
+     * cannot open, silently.
+     */
+    const val DEFAULT_JSON_KEY: String = "config.json"
     const val MODULE_ID: String = "io.colens.mcp-ign"
 
     /** Short id — also the gateway route mount alias, giving URLs under `/data/mcp/`. */

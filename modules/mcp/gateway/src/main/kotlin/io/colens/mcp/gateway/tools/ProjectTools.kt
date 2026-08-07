@@ -1,10 +1,11 @@
 package io.colens.mcp.gateway.tools
 
 import com.inductiveautomation.ignition.common.gson.JsonArray
-import com.inductiveautomation.ignition.common.resourcecollection.Resource
-import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath
-import com.inductiveautomation.ignition.common.resourcecollection.ResourceType
+import com.inductiveautomation.ignition.common.project.resource.ProjectResource
+import com.inductiveautomation.ignition.common.project.resource.ResourcePath
+import com.inductiveautomation.ignition.common.project.resource.ResourceType
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
+import io.colens.mcp.common.Constants
 import io.colens.mcp.common.McpArgumentException
 import io.colens.mcp.common.Tool
 import io.colens.mcp.common.jsonArrayOf
@@ -39,18 +40,19 @@ class ProjectTools(private val context: GatewayContext) {
         inputSchema = schema(),
         handler = {
             val manager = context.projectManager
-            val manifests = manager.manifests
+            val manifests = manager.projectManifests
             jsonObject {
-                put("projects", jsonArrayOf(manager.names.map { name ->
-                    // ResourceCollectionManifest is a record, so accessors are bare names.
+                put("projects", jsonArrayOf(manager.projectNames.map { name ->
+                    // 8.1's ProjectManifest is a bean, not a record: isEnabled/isInheritable, not
+                    // enabled()/inheritable(). A wrong accessor here would compile and return nulls.
                     val manifest = manifests[name]
                     jsonObject {
                         put("name", name)
-                        put("title", manifest?.title())
-                        put("description", manifest?.description())
-                        put("parent", manifest?.parent())
-                        put("enabled", manifest?.enabled())
-                        put("inheritable", manifest?.inheritable())
+                        put("title", manifest?.title)
+                        put("description", manifest?.description)
+                        put("parent", manifest?.parent)
+                        put("enabled", manifest?.isEnabled)
+                        put("inheritable", manifest?.isInheritable)
                     }
                 }))
             }
@@ -78,8 +80,7 @@ class ProjectTools(private val context: GatewayContext) {
             val pathContains = args.optString("pathContains")?.lowercase()
             val limit = args.optInt("limit", 500)
 
-            val collection = resourceCollection(project)
-            val all = collection.allResources
+            val all = runtimeProject(project).allResources
 
             val matching = all.keys
                 .asSequence()
@@ -96,8 +97,8 @@ class ProjectTools(private val context: GatewayContext) {
                     put("moduleId", id.resourcePath.moduleId)
                     put("type", id.resourcePath.type)
                     put("path", id.resourcePath.path.toString())
-                    put("definedIn", resource?.definingCollectionName)
-                    put("dataKeys", jsonArrayOfStrings(resource?.dataKeys.orEmpty()))
+                    put("definedIn", resource?.projectName)
+                    put("dataKeys", jsonArrayOfStrings(resource?.dataKeys ?: emptySet()))
                 })
             }
 
@@ -136,17 +137,21 @@ class ProjectTools(private val context: GatewayContext) {
                 args.requireString("path"),
             )
 
-            val resource = context.projectManager.getResource(project, resourcePath).orElse(null)
+            // 8.1's ProjectManager has no getResource(project, path); go via the project. Side
+            // effect: a bad project name now fails with "No such project" rather than "No resource".
+            val resource = runtimeProject(project).getResource(resourcePath).orElse(null)
                 ?: throw McpArgumentException("No resource '$resourcePath' in project '$project'")
 
             val keys = resource.dataKeys.toList()
             val key = args.optString("dataKey")
                 ?: keys.singleOrNull()
-                ?: keys.firstOrNull { it == Resource.DEFAULT_DATA_KEY || it == Resource.DEFAULT_JSON_KEY }
+                ?: keys.firstOrNull { it == ProjectResource.DEFAULT_DATA_KEY || it == Constants.DEFAULT_JSON_KEY }
                 ?: keys.firstOrNull()
                 ?: throw McpArgumentException("Resource '$resourcePath' has no data")
 
-            val bytes = resource.getData(key).orElse(null)?.bytes
+            // 8.1 returns the byte[] directly rather than an Optional<ImmutableBytes>, and may
+            // throw rather than return null for an absent key.
+            val bytes = runCatching { resource.getData(key) }.getOrNull()
                 ?: throw McpArgumentException("Resource '$resourcePath' has no data under key '$key'")
 
             val maxBytes = args.optInt("maxBytes", 262_144)
@@ -160,7 +165,7 @@ class ProjectTools(private val context: GatewayContext) {
                 put("path", resourcePath.path.toString())
                 put("dataKey", key)
                 put("dataKeys", jsonArrayOfStrings(keys))
-                put("definedIn", resource.definingCollectionName)
+                put("definedIn", resource.projectName)
                 put("documentation", resource.documentation)
                 put("sizeBytes", bytes.size)
                 put("truncated", truncated)
@@ -169,9 +174,9 @@ class ProjectTools(private val context: GatewayContext) {
         },
     )
 
-    private fun resourceCollection(project: String) =
-        context.projectManager.find(project).orElse(null)
+    private fun runtimeProject(project: String) =
+        context.projectManager.getProject(project).orElse(null)
             ?: throw McpArgumentException(
-                "No such project '$project'. Available: ${context.projectManager.names}"
+                "No such project '$project'. Available: ${context.projectManager.projectNames}"
             )
 }

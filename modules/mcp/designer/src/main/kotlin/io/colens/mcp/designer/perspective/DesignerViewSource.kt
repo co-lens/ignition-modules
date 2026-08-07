@@ -1,7 +1,7 @@
 package io.colens.mcp.designer.perspective
 
-import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath
-import com.inductiveautomation.ignition.common.resourcecollection.ResourceType
+import com.inductiveautomation.ignition.common.project.resource.ResourcePath
+import com.inductiveautomation.ignition.common.project.resource.ResourceType
 import com.inductiveautomation.ignition.designer.model.DesignerContext
 import com.inductiveautomation.perspective.common.config.ViewConfig
 import io.colens.mcp.common.McpArgumentException
@@ -36,14 +36,15 @@ class DesignerViewSource(private val context: DesignerContext) : ViewSource {
 
     override fun listViews(project: String): List<ViewRef> = onEdt {
         designableProject().allResources.entries
-            .filter { (id, _) -> id.resourcePath.resourceType == resourceType }
+            .filter { it.key.resourcePath.resourceType == resourceType }
             // Resource-type folders share the view resource type but carry no view.json; without
             // this they'd show up as empty views.
-            .filter { (_, resource) -> resource?.dataKeys?.contains(dataKey) == true }
-            .map { (id, resource) ->
+            .filter { it.value?.dataKeys?.contains(dataKey) == true }
+            .map { entry ->
                 ViewRef(
-                    path = id.resourcePath.path.toString(),
-                    sizeBytes = resource?.getData(dataKey)?.orElse(null)?.bytes?.size,
+                    path = entry.key.resourcePath.path.toString(),
+                    // 8.1 returns byte[] directly, not Optional<ImmutableBytes>.
+                    sizeBytes = runCatching { entry.value?.getData(dataKey) }.getOrNull()?.size,
                 )
             }
     }
@@ -54,7 +55,7 @@ class DesignerViewSource(private val context: DesignerContext) : ViewSource {
                 "No Perspective view '$viewPath' in the open project. " +
                     "Call perspective_list_views to see what's there."
             )
-        val bytes = resource.getData(dataKey).orElse(null)?.bytes
+        val bytes = runCatching { resource.getData(dataKey) }.getOrNull()
             ?: throw McpArgumentException("View '$viewPath' has no $dataKey")
         ViewDocument.parse(String(bytes, StandardCharsets.UTF_8))
     }

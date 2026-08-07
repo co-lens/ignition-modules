@@ -1,11 +1,12 @@
 package io.colens.mcp.designer.tools
 
 import com.inductiveautomation.ignition.common.gson.JsonArray
-import com.inductiveautomation.ignition.common.resourcecollection.ChangeOperation
-import com.inductiveautomation.ignition.common.resourcecollection.Resource
-import com.inductiveautomation.ignition.common.resourcecollection.ResourcePath
-import com.inductiveautomation.ignition.common.resourcecollection.ResourceType
+import com.inductiveautomation.ignition.common.project.ChangeOperation
+import com.inductiveautomation.ignition.common.project.resource.ProjectResource
+import com.inductiveautomation.ignition.common.project.resource.ResourcePath
+import com.inductiveautomation.ignition.common.project.resource.ResourceType
 import com.inductiveautomation.ignition.designer.model.DesignerContext
+import io.colens.mcp.common.Constants
 import io.colens.mcp.common.McpArgumentException
 import io.colens.mcp.common.Tool
 import io.colens.mcp.common.jsonArrayOf
@@ -136,7 +137,9 @@ class DesignerTools(private val context: DesignerContext) {
                 val key = dataKey ?: primaryDataKey(keys)
                     ?: throw McpArgumentException("Resource '$resourcePath' has no data")
 
-                val bytes = resource.getData(key).orElse(null)?.bytes
+                // 8.1 returns byte[] directly, not Optional<ImmutableBytes>, and may throw
+                // rather than return null for an absent key.
+                val bytes = runCatching { resource.getData(key) }.getOrNull()
                     ?: throw McpArgumentException("Resource '$resourcePath' has no data under key '$key'")
 
                 jsonObject {
@@ -207,7 +210,7 @@ class DesignerTools(private val context: DesignerContext) {
                 val existing = project.getResource(resourcePath).orElse(null)
                 val key = requestedKey
                     ?: existing?.dataKeys?.toList()?.let { primaryDataKey(it) }
-                    ?: Resource.DEFAULT_JSON_KEY
+                    ?: Constants.DEFAULT_JSON_KEY
 
                 project.createOrModify(resourcePath) { builder ->
                     builder.putData(key, content.toByteArray(StandardCharsets.UTF_8))
@@ -273,7 +276,7 @@ class DesignerTools(private val context: DesignerContext) {
 
     private fun primaryDataKey(keys: List<String>): String? =
         keys.singleOrNull()
-            ?: keys.firstOrNull { it == Resource.DEFAULT_DATA_KEY || it == Resource.DEFAULT_JSON_KEY }
+            ?: keys.firstOrNull { it == ProjectResource.DEFAULT_DATA_KEY || it == Constants.DEFAULT_JSON_KEY }
             ?: keys.firstOrNull()
 
     /**
