@@ -4,14 +4,15 @@ import com.inductiveautomation.ignition.gateway.dataroutes.RequestContext
 import com.inductiveautomation.ignition.gateway.dataroutes.RouteHandler
 import io.colens.mcp.common.McpHttpRequest
 import io.colens.mcp.common.McpServer
-import jakarta.servlet.http.HttpServletResponse
+import javax.servlet.http.HttpServletResponse
 
 /**
  * Bridges an Ignition data route to [McpServer].
  *
  * There is no authentication here on purpose: the route is mounted with
- * `requirePermission(...)`, so the platform has already validated the caller's API token (or
- * gateway session) and rejected it with 401/403 before we're reached.
+ * `restrict(BearerAccessControl)`, so the bearer secret was validated and a bad one rejected with
+ * 401 before we're reached. (On the 8.3 line the same slot is filled by the platform's own API
+ * token strategies, which 8.1 does not have — see [BearerAccessControl].)
  *
  * The server is resolved per request rather than captured, because routes are mounted before
  * `startup()` has necessarily finished building the tool registry.

@@ -1,8 +1,6 @@
 package io.colens.mcp.gateway
 
 import com.inductiveautomation.ignition.common.licensing.LicenseState
-import com.inductiveautomation.ignition.gateway.dataroutes.AccessControlStrategy
-import com.inductiveautomation.ignition.gateway.auth.apitoken.ApiTokenManager
 import com.inductiveautomation.ignition.gateway.dataroutes.HttpMethod
 import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook
@@ -28,12 +26,14 @@ import java.util.Optional
  *
  * Two endpoints, distinguished only by which tool registry they serve:
  *
- *  - `POST /data/mcp/mcp`          all tools, requires an API token with **write** permission
- *  - `POST /data/mcp/mcp-readonly` read-only tools, requires **read** permission
+ *  - `POST /data/mcp/mcp`          all tools, requires -Dmcp.gateway.writeSecret
+ *  - `POST /data/mcp/mcp-readonly` read-only tools, requires either secret
  *
- * That is the entire write-gating mechanism. Ignition's own API token permissions (managed in
- * the gateway UI) decide who can mutate; a read-scoped token can't even *see* the mutating
- * tools, because they aren't in the registry behind that route.
+ * Write gating is structural: a read-scoped caller can't even *see* the mutating tools, because
+ * they aren't in the registry behind that route.
+ *
+ * The credential is a shared bearer secret rather than an API token because **8.1 has no API
+ * tokens at all** — see [BearerAccessControl] for what that costs and the recommended posture.
  */
 @Suppress("unused")
 class GatewayHook : AbstractGatewayModuleHook() {
@@ -47,6 +47,24 @@ class GatewayHook : AbstractGatewayModuleHook() {
     @Volatile private var readOnlyServer: McpServer? = null
 
     @Volatile private var trialWatchdog: TrialWatchdog? = null
+
+    // Read at construction, not in mountRouteHandlers(): system properties are set at JVM launch,
+    // and snapshotting means a later System.setProperty() — reachable from run_script on the write
+    // endpoint — cannot widen who may authenticate.
+    private val readSecret: String? = BearerAccessControl.secret(BearerAccessControl.READ_SECRET_PROPERTY)
+    private val writeSecret: String? = BearerAccessControl.secret(BearerAccessControl.WRITE_SECRET_PROPERTY)
+
+    private val writeAccess = BearerAccessControl(
+        "write", listOfNotNull(writeSecret).map(BearerAccessControl::utf8),
+    )
+
+    // The write secret also opens the read endpoint. Not an escalation: the read-only registry is
+    // a strict subset of the full one, so a write-secret holder can already call every read tool
+    // through /mcp. Refusing it would only break a client configured with both endpoints and one
+    // secret.
+    private val readAccess = BearerAccessControl(
+        "read", listOfNotNull(readSecret, writeSecret).map(BearerAccessControl::utf8),
+    )
 
     override fun setup(context: GatewayContext) {
         this.context = context
@@ -83,6 +101,8 @@ class GatewayHook : AbstractGatewayModuleHook() {
             Constants.SHORT_MODULE_ID,
         )
 
+        warnAboutSecrets()
+
         // Opt-in, and only on a gateway actually running a trial. This works at all because
         // isFreeModule() below keeps this hook running while the platform trial is expired — a
         // demo-limited module would be shut down at the exact moment it needed to act.
@@ -98,33 +118,34 @@ class GatewayHook : AbstractGatewayModuleHook() {
     }
 
     override fun mountRouteHandlers(routes: RouteGroup) {
-        // ApiTokenManager's token strategies rather than requirePermission(): the latter bundles
-        // browser-session strategies that validate HTTP method safety — READ accepts only
-        // GET/HEAD/OPTIONS and WRITE (being CSRF-aware) only unsafe methods — so neither can
-        // guard a POST-only JSON-RPC endpoint. These validate the X-Ignition-API-Token header
-        // and the token's security levels.
+        // 8.1 has no ApiTokenManager, so the read/write split is carried by two shared secrets
+        // rather than by token permissions:
         //
-        // The read-only endpoint uses TOKEN_ACCESS, not TOKEN_READ. Those names describe gateway
-        // *configuration* rights, not data access: TOKEN_READ resolves to the gateway-wide
-        // readPermissions property, which ships requiring Administrator — far too high a bar for
-        // reading tag values. TOKEN_ACCESS resolves to accessPermissions, which is an empty
-        // AllOf by default and so admits any valid token. Net effect:
+        //   -Dmcp.gateway.readSecret   -> the 14 read-only tools on /mcp-readonly
+        //   -Dmcp.gateway.writeSecret  -> all 17 on /mcp, INCLUDING run_script and reset_trial,
+        //                                 and also accepted on /mcp-readonly
         //
-        //   any valid API token                    -> the 14 read-only tools
-        //   token with gateway write permission    -> all 17, including tag writes, run_script
-        //                                             and reset_trial
-        mountMcpRoute(routes, "/mcp", ApiTokenManager.TOKEN_WRITE) { fullServer }
-        mountMcpRoute(routes, "/mcp-readonly", ApiTokenManager.TOKEN_ACCESS) { readOnlyServer }
+        // Routes are mounted even when the secrets are unset, and answer 401. Refusing to mount
+        // would produce a 404, which an operator cannot tell apart from "the module isn't
+        // installed" — the wrong symptom for a configuration mistake, and one with no log line at
+        // the moment of the request.
+        mountMcpRoute(routes, "/mcp", writeAccess) { fullServer }
+        mountMcpRoute(routes, "/mcp-readonly", readAccess) { readOnlyServer }
 
+        // Open. 8.1 has no OPEN_ROUTE constant because an unrestricted route simply never calls
+        // restrict(). Nothing here is sensitive, and authConfigured is precisely what an operator
+        // needs to see when everything else is answering 401.
         routes.newRoute("/health")
             .method(HttpMethod.GET)
             .type(RouteGroup.TYPE_JSON)
-            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler { _, _ ->
                 McpJson.toString(jsonObject {
                     put("status", if (fullServer != null) "ok" else "starting")
                     put("server", Constants.SERVER_NAME)
                     put("version", moduleVersion())
+                    put("platform", "8.1")
+                    put("authConfigured", readAccess.configured)
+                    put("writeEndpointEnabled", writeAccess.configured)
                     put("mcpEndpoint", "/data/${Constants.SHORT_MODULE_ID}/mcp")
                     put("mcpReadOnlyEndpoint", "/data/${Constants.SHORT_MODULE_ID}/mcp-readonly")
                 })
@@ -135,13 +156,13 @@ class GatewayHook : AbstractGatewayModuleHook() {
     private fun mountMcpRoute(
         routes: RouteGroup,
         path: String,
-        access: AccessControlStrategy,
+        access: BearerAccessControl,
         server: () -> McpServer?,
     ) {
         routes.newRoute(path)
             .method(HttpMethod.POST)
             .type(RouteGroup.TYPE_JSON)
-            .accessControl(access)
+            .restrict(access)
             .handler(McpRouteHandler(server))
             .mount()
 
@@ -149,13 +170,11 @@ class GatewayHook : AbstractGatewayModuleHook() {
         // Answer 405 (what a modern-revision server is told to do) rather than 404, which the
         // client would read as "this isn't an MCP endpoint at all".
         //
-        // This one is OPEN_ROUTE deliberately: requirePermission() bundles a CSRF strategy that
-        // refuses to guard safe methods ("Mounted HTTP method 'GET' is not in the unsafe set"),
-        // and the handler only ever replies 405 + Allow, so there is nothing here to protect.
+        // Left unrestricted deliberately: the handler only ever replies 405 + Allow, so there is
+        // nothing here to protect.
         routes.newRoute(path)
             .method(HttpMethod.GET)
             .type(RouteGroup.TYPE_JSON)
-            .accessControl(AccessControlStrategy.OPEN_ROUTE)
             .handler(McpRouteHandler(server))
             .mount()
     }
@@ -178,6 +197,49 @@ class GatewayHook : AbstractGatewayModuleHook() {
     } catch (t: Throwable) {
         logger.info("Perspective tools unavailable on this gateway: {}", t.toString())
         emptyList()
+    }
+
+    /**
+     * The 8.1 auth story is a shared secret, so the only place an operator learns they got it
+     * wrong is the log. Say so loudly, name the exact property, and never print the value.
+     */
+    private fun warnAboutSecrets() {
+        if (!readAccess.configured) {
+            logger.error(
+                "Neither -D{} nor -D{} is set: BOTH MCP endpoints will reject every request with " +
+                    "401. Add them as wrapper.java.additional lines in ignition.conf and restart.",
+                BearerAccessControl.READ_SECRET_PROPERTY,
+                BearerAccessControl.WRITE_SECRET_PROPERTY,
+            )
+            return
+        }
+
+        if (!writeAccess.configured) {
+            logger.info(
+                "-D{} is unset, so /mcp is closed and only the read-only endpoint is reachable. " +
+                    "That is the recommended posture on 8.1.",
+                BearerAccessControl.WRITE_SECRET_PROPERTY,
+            )
+        } else {
+            logger.warn(
+                "-D{} is set: /mcp exposes run_script, which is arbitrary Jython in gateway " +
+                    "scope. Anyone holding that secret has the gateway.",
+                BearerAccessControl.WRITE_SECRET_PROPERTY,
+            )
+        }
+
+        listOf(
+            BearerAccessControl.READ_SECRET_PROPERTY to readSecret,
+            BearerAccessControl.WRITE_SECRET_PROPERTY to writeSecret,
+        ).forEach { (name, value) ->
+            if (value != null && value.length < BearerAccessControl.MIN_SECRET_LENGTH) {
+                logger.warn(
+                    "-D{} is only {} characters. These endpoints are reachable from the network; " +
+                        "use at least {} random characters.",
+                    name, value.length, BearerAccessControl.MIN_SECRET_LENGTH,
+                )
+            }
+        }
     }
 
     private fun moduleVersion(): String =
