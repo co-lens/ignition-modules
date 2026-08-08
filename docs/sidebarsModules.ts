@@ -17,7 +17,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Get started',
       collapsed: false,
-      items: ['mcp/quickstart', 'mcp/versions'],
+      items: ['mcp/quickstart', 'mcp/versions', 'mcp/docker'],
     },
     {
       type: 'category',

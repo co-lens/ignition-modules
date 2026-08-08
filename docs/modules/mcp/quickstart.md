@@ -79,6 +79,12 @@ prompted. Or drop the file into the module folder and restart:
 cp Ignition-MCP*.modl /usr/local/bin/ignition/user-lib/modules/
 ```
 
+:::tip Running in Docker?
+[Docker Compose](./docker.md) has ready-to-run files, and covers the two things containers change:
+accepting the module certificate unattended, and keeping your API token across a `docker compose
+up -d`.
+:::
+
 Confirm it came up — this endpoint needs no credential:
 
 ```bash

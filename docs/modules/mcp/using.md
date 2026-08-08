@@ -103,6 +103,57 @@ See [Editing views](./perspective/editing.md) for how the tools fit together, an
 [Validation](./perspective/validation.md) for the three authoring mistakes that break views
 silently and which these tools make unreachable.
 
+## Keep a trial gateway alive
+
+An unlicensed gateway stops after two hours, which is long enough to be evaluating happily and
+short enough to lose the thread when it happens.
+
+> *"The gateway just stopped responding — has the trial expired, or is something else wrong?"*
+>
+> *"Reset the trial and tell me how long I've got."*
+>
+> *"I'm about to demo this. Top the trial up now rather than waiting for it to run out."*
+
+`gateway_info` answers the first one without a reset — it reports `licenseMode`, `trialExpired` and
+`demoTimeRemaining` in seconds. [`reset_trial`](./tools/gateway.md#reset_trial) restarts the
+countdown: the same action as the **Reset Trial** button on the gateway home page, calling the same
+`LicenseManagerImpl.resetTrial()` Ignition's own web route calls, under the same rule that the
+timer must have run out first. Pass `force=true` to top it up mid-session instead, which is the
+third question above. On an activated gateway it's refused — there's no trial to reset.
+
+Two caveats worth having in mind:
+
+- **It needs a write credential.** `reset_trial` is served only on `/data/mcp/mcp`, so a read-only
+  token can't call it — or even see it in `tools/list`. That credential is powerful enough to
+  warrant thought first; see [Endpoints and security](./endpoints.md).
+- **Licence anything a customer touches.** For an unattended dev loop there's an opt-in watchdog
+  that resets the trial for you — see [Dev gateway](./contributing/dev-gateway.md#trial-expiry) —
+  but automating a two-hour timer forever is a dev-gateway habit, not a deployment strategy.
+
+## See that it's running, without asking it anything
+
+The module puts a card on the gateway's own **Configure → Services → Overview** page, next to the
+stock ones:
+
+```
+Ignition MCP
+┌──────┬────────┬────────────────┬──────────┬───────┐
+│ icon │   3    │       22       │  1,284   │  26   │
+│      │ Errors │ Read-only tools│ Requests │ Tools │
+└──────┴────────┴────────────────┴──────────┴───────┘
+```
+
+Requests and errors are totals since the module last started, across both endpoints — enough to
+answer "is anything actually connecting?" without turning on debug logging. The same numbers, plus
+a few that don't fit on a card, are on
+[`/data/mcp/health`](./endpoints.md#the-health-endpoint), which needs no credential. Each one is
+also a `mcp.gateway.*` metric on **Diagnostics → Metrics Dashboard** if you want it graphed.
+
+The card shows four numbers because Ignition's overview card renders at most four. Two things
+worth knowing therefore live only on the health endpoint: whether
+[anonymous read](./endpoints.md#opting-out-of-the-read-credential) is on, and what the trial
+watchdog is doing.
+
 ## What it deliberately won't do
 
 Worth knowing, so you don't wait for something that isn't coming:
