@@ -2,17 +2,33 @@ import type * as Preset from '@docusaurus/preset-classic';
 import type {Config} from '@docusaurus/types';
 import type * as DocsPlugin from '@docusaurus/plugin-content-docs';
 
+// The one place the subpath is written down. `headTags` hrefs are emitted verbatim — Docusaurus
+// does not prefix them the way it does `favicon` — so they have to build their own absolute path,
+// and doing it from this constant keeps the "nothing hardcodes '/ignition-modules/'" rule below
+// true: moving to a custom domain is still a one-line change.
+const baseUrl = '/ignition-modules/';
+
 const config: Config = {
   title: 'co-lens Ignition modules',
   tagline: 'Ignition modules, built small and documented from the code.',
+  // The .ico carries six sizes and is what every browser will accept; the SVG below is offered
+  // alongside it for the ones that prefer a vector. Deliberately not the co-lens wordmark, which
+  // is 726x158 and unreadable at 16px — favicon.svg is the square lambda mark.
   favicon: 'img/favicon.ico',
+
+  headTags: [
+    {
+      tagName: 'link',
+      attributes: {rel: 'icon', type: 'image/svg+xml', href: `${baseUrl}img/favicon.svg`},
+    },
+  ],
 
   // A project page, not an organisation page: no co-lens.github.io repository exists, so the site
   // is served from a subpath and baseUrl must carry the repo name. If a custom domain is ever
   // added, `url` becomes that domain and `baseUrl` becomes '/', plus a static/CNAME file — which
   // is why nothing inside the site hardcodes '/ignition-modules/'. Use relative links.
   url: 'https://co-lens.github.io',
-  baseUrl: '/ignition-modules/',
+  baseUrl,
   organizationName: 'co-lens',
   projectName: 'ignition-modules',
 
@@ -88,10 +104,17 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/docusaurus-social-card.jpg',
+    // No `image`: og:image has to be a raster format, because Slack, LinkedIn, Discord and X all
+    // decline to render an SVG there. Pointing it at the wordmark would silently produce no link
+    // preview at all, which is worse than declaring nothing. Restore this the day a PNG card
+    // exists.
     navbar: {
-      title: 'co-lens modules',
-      logo: {alt: '', src: 'img/logo.svg'},
+      // The wordmark already reads "co-lens", so the title carries only what it doesn't.
+      title: 'modules',
+      // srcDark is not optional here: the wordmark is #3C464D, which on the dark navbar's near
+      // black leaves the letterforms all but invisible and only the orange lambda showing.
+      // co-lens-dark.svg is the same file with that one fill lightened.
+      logo: {alt: 'co-lens', src: 'img/co-lens.svg', srcDark: 'img/co-lens-dark.svg'},
       items: [
         {type: 'docSidebar', sidebarId: 'generalSidebar', position: 'left', label: 'Docs'},
         {
