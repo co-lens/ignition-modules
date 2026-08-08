@@ -1,8 +1,9 @@
 # Ignition MCP — Ignition 8.1 line
 
 > **This branch is a time-limited port.** It exists for people still on the Ignition 8.1 platform
-> line. It **never merges into `main`**, it receives only security fixes and wrong-data bug fixes,
-> and it is **scheduled for deletion around February 2027**. After that, published releases keep
+> line. It **never merges into `main`**; it receives security fixes, wrong-data bug fixes, and — by
+> explicit exception — changes needed to keep the tool surface identical to the 8.3 line. It is
+> **scheduled for deletion around February 2027**. After that, published releases keep
 > working but nothing further is built.
 >
 > The 8.3 line — which is the maintained one — is on
@@ -10,7 +11,7 @@
 > <https://co-lens.github.io/ignition-modules/>.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that runs inside Ignition, as a
-Kotlin module. Same 44 tools as the 8.3 line. The difference that matters is authentication.
+Kotlin module. Same 46 tools as the 8.3 line. The difference that matters is authentication.
 
 **Requires Ignition 8.1.40+ and Perspective** (see [Differences](#differences-from-the-83-line)).
 
@@ -73,6 +74,7 @@ per-session secret and never touched Ignition's auth. Use **Tools → MCP Connec
 | Auth | API tokens, per-token, revocable in the UI | two shared JVM-arg secrets |
 | Auth header | `X-Ignition-API-Token` | `Authorization: Bearer` |
 | Perspective | optional — module loads without it | **required** — module will not install without it |
+| `scan_resource_files` `target: config` | supported | unavailable — 8.1 keeps gateway config in `config.idb`, not on disk |
 | Asset name | `Ignition-MCP-<v>.modl` | `Ignition-MCP-81-<v>.modl` |
 | Release tag | `mcp-v*` | `mcp81-v*` |
 
