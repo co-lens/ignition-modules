@@ -26,6 +26,39 @@ object JsonRpcErrors {
     const val INTERNAL_ERROR = -32603
 }
 
+/** How one JSON-RPC request turned out, from the caller's point of view. */
+enum class McpOutcome {
+    /** Answered normally. */
+    OK,
+
+    /**
+     * A tool ran and failed. Note this is still HTTP 200 with `isError: true` in the body — see
+     * [McpServer.callTool] for why a failing tool is a result rather than a protocol error.
+     */
+    TOOL_ERROR,
+
+    /** The request never reached a tool: unparseable, unknown method, bad params, internal error. */
+    PROTOCOL_ERROR,
+}
+
+/**
+ * Notified once per JSON-RPC *request* handled. Notifications don't count — nobody is waiting on
+ * them, so counting them would inflate a "requests" figure that a reader expects to mean
+ * "requests answered".
+ *
+ * This exists so the gateway can feed its status card and `/data/mcp/health` without this class
+ * knowing anything about Ignition. It is a plain Kotlin interface with no platform types, and the
+ * Designer leaves it null and pays nothing.
+ *
+ * The reason it lives here rather than in the gateway's route handler: [McpOutcome.TOOL_ERROR]
+ * comes back as HTTP 200 with `isError` buried in the body, so a counter sitting outside this
+ * class cannot tell a failed tool from a successful one without re-parsing every response. A
+ * gateway where every tool call was blowing up would report zero errors.
+ */
+fun interface McpRequestListener {
+    fun onRequest(method: String, outcome: McpOutcome)
+}
+
 /**
  * A complete MCP server over the Streamable HTTP transport, in its simplest compliant form:
  * stateless, POST-only, always answering `application/json`.
@@ -45,11 +78,14 @@ class McpServer(
     private val instructions: String? = null,
     /** Origins permitted in addition to loopback. Loopback and absent Origin are always fine. */
     private val extraAllowedOrigins: Set<String> = emptySet(),
+    /** Optional usage sink. See [McpRequestListener]; null means no accounting at all. */
+    private val listener: McpRequestListener? = null,
 ) {
 
     fun handle(request: McpHttpRequest): McpHttpResult {
         request.origin?.let { origin ->
             if (!isAllowedOrigin(origin)) {
+                report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
                 return errorResult(403, JsonRpcErrors.INVALID_REQUEST, "Origin not allowed: $origin")
             }
         }
@@ -57,44 +93,69 @@ class McpServer(
         return when (request.method.uppercase()) {
             "POST" -> handlePost(request.body)
             // Not an error the client needs to recover from — just tell it what we support.
-            "GET", "DELETE" -> McpHttpResult(
-                status = 405,
-                body = errorEnvelope(JsonRpcErrors.INVALID_REQUEST, "Only POST is supported"),
-                headers = mapOf("Allow" to "POST"),
-            )
-            else -> McpHttpResult(
-                status = 405,
-                body = errorEnvelope(JsonRpcErrors.INVALID_REQUEST, "Unsupported method"),
-                headers = mapOf("Allow" to "POST"),
-            )
+            "GET", "DELETE" -> {
+                report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
+                McpHttpResult(
+                    status = 405,
+                    body = errorEnvelope(JsonRpcErrors.INVALID_REQUEST, "Only POST is supported"),
+                    headers = mapOf("Allow" to "POST"),
+                )
+            }
+            else -> {
+                report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
+                McpHttpResult(
+                    status = 405,
+                    body = errorEnvelope(JsonRpcErrors.INVALID_REQUEST, "Unsupported method"),
+                    headers = mapOf("Allow" to "POST"),
+                )
+            }
         }
     }
 
+    /**
+     * Feeds [listener], if there is one. Deliberately swallows anything the sink throws: usage
+     * accounting must never be able to turn a good request into a failed one.
+     */
+    private fun report(method: String, outcome: McpOutcome) {
+        val sink = listener ?: return
+        runCatching { sink.onRequest(method, outcome) }
+    }
+
     private fun handlePost(body: String?): McpHttpResult {
+        // Everything before the dispatch below failed to name a method, so it is reported against
+        // UNKNOWN_METHOD rather than being left uncounted.
         if (body.isNullOrBlank()) {
+            report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
             return errorResult(400, JsonRpcErrors.INVALID_REQUEST, "Empty request body")
         }
 
         val parsed = try {
             McpJson.parse(body)
         } catch (e: Exception) {
+            report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
             return errorResult(400, JsonRpcErrors.PARSE_ERROR, "Invalid JSON: ${e.message}")
         }
 
         if (parsed.isJsonArray) {
             // JSON-RPC batching was removed from MCP in 2025-06-18.
+            report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
             return errorResult(400, JsonRpcErrors.INVALID_REQUEST, "Batch requests are not supported")
         }
         if (!parsed.isJsonObject) {
+            report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
             return errorResult(400, JsonRpcErrors.INVALID_REQUEST, "Request must be a JSON object")
         }
 
         val message = parsed.asJsonObject
         val method = message.optString("method")
-            ?: return errorResult(400, JsonRpcErrors.INVALID_REQUEST, "Missing 'method'")
+        if (method == null) {
+            report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
+            return errorResult(400, JsonRpcErrors.INVALID_REQUEST, "Missing 'method'")
+        }
         val id = message.get("id")
 
-        // No id means a notification: acknowledge and produce nothing.
+        // No id means a notification: acknowledge and produce nothing. Deliberately unreported —
+        // nobody is waiting on it, so it is not a request anyone would count.
         if (id == null || id.isJsonNull) {
             return McpHttpResult(status = 202, body = "", contentType = null)
         }
@@ -103,15 +164,36 @@ class McpServer(
 
         return try {
             when (method) {
-                "initialize" -> success(id, initializeResult(params))
-                "ping" -> success(id, JsonObject())
-                "tools/list" -> success(id, jsonObject { put("tools", tools.toJsonArray()) })
-                "tools/call" -> success(id, callTool(params))
-                else -> failure(id, JsonRpcErrors.METHOD_NOT_FOUND, "Unknown method: $method")
+                "initialize" -> {
+                    report(method, McpOutcome.OK)
+                    success(id, initializeResult(params))
+                }
+                "ping" -> {
+                    report(method, McpOutcome.OK)
+                    success(id, JsonObject())
+                }
+                "tools/list" -> {
+                    report(method, McpOutcome.OK)
+                    success(id, jsonObject { put("tools", tools.toJsonArray()) })
+                }
+                "tools/call" -> {
+                    // Classified from the result rather than from an exception, because a failing
+                    // tool never throws out of callTool — it comes back as isError.
+                    val result = callTool(params)
+                    val failed = result.optBoolean("isError", false)
+                    report(method, if (failed) McpOutcome.TOOL_ERROR else McpOutcome.OK)
+                    success(id, result)
+                }
+                else -> {
+                    report(method, McpOutcome.PROTOCOL_ERROR)
+                    failure(id, JsonRpcErrors.METHOD_NOT_FOUND, "Unknown method: $method")
+                }
             }
         } catch (e: McpArgumentException) {
+            report(method, McpOutcome.PROTOCOL_ERROR)
             failure(id, JsonRpcErrors.INVALID_PARAMS, e.message ?: "Invalid parameters")
         } catch (e: Exception) {
+            report(method, McpOutcome.PROTOCOL_ERROR)
             failure(id, JsonRpcErrors.INTERNAL_ERROR, e.message ?: e.javaClass.simpleName)
         }
     }
@@ -224,5 +306,10 @@ class McpServer(
             host == "127.0.0.1" ||
             host == "::1" ||
             host == "[::1]"
+    }
+
+    private companion object {
+        /** Reported when the request failed before it named a method we could recognise. */
+        const val UNKNOWN_METHOD = "?"
     }
 }

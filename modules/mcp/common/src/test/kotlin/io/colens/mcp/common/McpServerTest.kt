@@ -3,6 +3,7 @@ package io.colens.mcp.common
 import com.inductiveautomation.ignition.common.gson.JsonObject
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -257,5 +258,88 @@ class McpServerTest : StringSpec({
         val thrown = runCatching { ToolRegistry(listOf(echoTool(), echoTool())) }.exceptionOrNull()
         thrown.shouldNotBeNull()
         thrown.message.shouldNotBeNull() shouldContain "echo"
+    }
+
+    // -- usage accounting ---------------------------------------------------
+    //
+    // The gateway's status card and /data/mcp/health are built on these outcomes, and the
+    // TOOL_ERROR case is the reason the classification lives in McpServer rather than in the
+    // gateway's route handler: it is an HTTP 200 and indistinguishable from success outside
+    // this class.
+
+    fun recorder(): Pair<MutableList<Pair<String, McpOutcome>>, McpRequestListener> {
+        val seen = mutableListOf<Pair<String, McpOutcome>>()
+        return seen to McpRequestListener { method, outcome -> seen += method to outcome }
+    }
+
+    fun serverWith(listener: McpRequestListener, vararg tools: Tool) =
+        McpServer(ToolRegistry(tools.toList()), serverVersion = "0.0.0-test", listener = listener)
+
+    "a successful tool call reports OK" {
+        val (seen, listener) = recorder()
+        post(
+            serverWith(listener, echoTool()),
+            """{"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"echo","arguments":{"value":"hi"}}}""",
+        )
+        seen shouldContainExactly listOf("tools/call" to McpOutcome.OK)
+    }
+
+    "a failing tool reports TOOL_ERROR while still answering 200" {
+        val (seen, listener) = recorder()
+        val res = post(
+            serverWith(listener, boomTool()),
+            """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"boom"}}""",
+        )
+
+        res.status shouldBe 200
+        bodyOf(res).optObject("result").shouldNotBeNull()
+            .optBoolean("isError", false).shouldBeTrue()
+        seen shouldContainExactly listOf("tools/call" to McpOutcome.TOOL_ERROR)
+    }
+
+    "an unknown method reports PROTOCOL_ERROR" {
+        val (seen, listener) = recorder()
+        post(serverWith(listener), """{"jsonrpc":"2.0","id":1,"method":"nope"}""")
+        seen shouldContainExactly listOf("nope" to McpOutcome.PROTOCOL_ERROR)
+    }
+
+    "an unknown tool name reports PROTOCOL_ERROR, not TOOL_ERROR" {
+        val (seen, listener) = recorder()
+        post(
+            serverWith(listener, echoTool()),
+            """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ghost"}}""",
+        )
+        seen shouldContainExactly listOf("tools/call" to McpOutcome.PROTOCOL_ERROR)
+    }
+
+    "malformed JSON reports PROTOCOL_ERROR against an unnamed method" {
+        val (seen, listener) = recorder()
+        post(serverWith(listener), "{not json")
+        seen shouldContainExactly listOf("?" to McpOutcome.PROTOCOL_ERROR)
+    }
+
+    "a notification is not reported" {
+        val (seen, listener) = recorder()
+        post(serverWith(listener), """{"jsonrpc":"2.0","method":"notifications/initialized"}""")
+        seen.shouldBeEmpty()
+    }
+
+    "a listener that throws does not break the request" {
+        val server = McpServer(
+            ToolRegistry(listOf(echoTool())),
+            serverVersion = "0.0.0-test",
+            listener = { _, _ -> throw IllegalStateException("sink is down") },
+        )
+
+        val res = post(
+            server,
+            """{"jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":"echo","arguments":{"value":"hi"}}}""",
+        )
+
+        res.status shouldBe 200
+        bodyOf(res).optObject("result").shouldNotBeNull()
+            .optBoolean("isError", true) shouldBe false
     }
 })

@@ -58,6 +58,16 @@ Then check, in order:
 1. The header is `X-Ignition-API-Token`, not `Authorization`.
 2. The value is `<keyId>:<secret>` — both halves, colon-separated.
 3. The token still exists and is enabled in **Config → Security → API Tokens**.
+4. You're sending a token at all. The read-only endpoint requires one — if you have a client that
+   used to work without a header, see below.
+
+:::note If read-only requests started returning 401 after an upgrade
+Earlier builds served `/mcp-readonly` to callers with no token at all, because the permission set
+being checked was empty and an empty set admits anonymous requests. That was a security bug, not a
+feature; the endpoint now requires a valid token like the docs always said. Issue a token for the
+client, or — for an isolated dev gateway only — set
+[`-Dmcp.gateway.allowAnonymousRead=true`](./endpoints.md#opting-out-of-the-read-credential).
+:::
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">

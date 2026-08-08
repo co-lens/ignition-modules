@@ -38,6 +38,25 @@ included — and are miserable to diagnose:
 
 Then `curl -s http://localhost:18088/data/mcp/health` should return `{"status":"ok",...}`.
 
+## Skipping the token on a dev gateway
+
+Issuing an API token per client is friction you may not want on a throwaway gateway. Add to the
+JVM args:
+
+```
+-Dmcp.gateway.allowAnonymousRead=true
+```
+
+The read-only endpoint then answers without a credential. The write endpoint is unaffected and
+still needs a valid token with write permission.
+
+:::danger Dev gateways only
+This exposes every read-only tool — `run_query`, `read_project_resource`, `read_tags`,
+`query_logs` — to anyone who can reach the web port. It logs a WARN under `mcp.Gateway` at every
+startup so it can't hide in an audit. See
+[Endpoints and security](../endpoints.md#opting-out-of-the-read-credential).
+:::
+
 ## Trial expiry
 
 An unlicensed gateway stops after two hours.

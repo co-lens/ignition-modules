@@ -15,11 +15,50 @@ import TabItem from '@theme/TabItem';
 | --- | --- | --- |
 | `POST /data/mcp/mcp` | write | all 18, or 26 with Perspective installed |
 | `POST /data/mcp/mcp-readonly` | read | the 14 read-only ones, or 22 with Perspective |
-| `GET /data/mcp/health` | none | status, version, platform |
+| `GET /data/mcp/health` | none | status, version, tool counts, usage totals |
 
 The two counts differ because the `perspective_*` tools are only registered when Perspective is
 present. All eight gateway-side Perspective tools are read-only, so they add to both numbers
 equally.
+
+### The health endpoint
+
+No credential, which is what makes it the right first check when nothing else is working:
+
+```bash
+curl -s http://<gateway>:8088/data/mcp/health
+```
+
+```json
+{
+  "status": "ok",
+  "server": "ignition-mcp",
+  "version": "0.2.0",
+  "mcpEndpoint": "/data/mcp/mcp",
+  "mcpReadOnlyEndpoint": "/data/mcp/mcp-readonly",
+  "tools": 26,
+  "readOnlyTools": 22,
+  "perspectiveTools": 8,
+  "requests": 1284,
+  "errors": 3,
+  "toolErrors": 2,
+  "protocolErrors": 1,
+  "anonymousRead": false,
+  "trialWatchdog": "off"
+}
+```
+
+`requests` counts JSON-RPC requests answered across both endpoints since the module last started;
+notifications aren't counted, because nothing is waiting on them. The error split is the useful
+part: a **`toolError`** is a tool that ran and failed — answered `200` with `isError`, so your
+client saw a reply — while a **`protocolError`** never reached a tool at all. A client that looks
+healthy but is getting nothing useful shows up as `toolErrors` climbing.
+
+`trialWatchdog` is one of `off`, `running`, `stood down` (there was no longer a trial to reset) or
+`gave up` (three consecutive failed resets).
+
+`anonymousRead` is reported rather than hidden: an unauthenticated caller can already discover it
+by POSTing to the read-only endpoint and being answered.
 
 ### What "credential" means
 
@@ -32,6 +71,32 @@ the module's handler runs, so there is no authentication code in this module at 
 - **Read** — any valid token. Issued and revoked per client in **Config → Security → API Tokens**.
 - **Write** — a token that additionally satisfies the gateway's write permission, which by default
   means the `Administrator` role.
+
+Both routes require the token to *validate*, on top of the permission check. That distinction
+matters more than it sounds: the gateway's `accessPermissions` property ships as an empty
+permission set, and an empty set is satisfied by the anonymous caller, so a permission check alone
+would let an unauthenticated request through.
+
+#### Opting out of the read credential
+
+`-Dmcp.gateway.allowAnonymousRead=true` serves the read-only endpoint without any token:
+
+```
+wrapper.java.additional.9=-Dmcp.gateway.allowAnonymousRead=true
+```
+
+:::danger This publishes the gateway's data to anyone who can reach the port
+Every read-only tool becomes available with no credential — `run_query` against your database
+connections, `read_project_resource` for project source, `read_tags`, `query_logs`. There is no
+per-client identity, nothing to revoke, and nothing in the logs tying a read to a caller.
+
+It is off by default and logs a WARN under `mcp.Gateway` at every startup when on. Use it on an
+isolated dev gateway; never on anything reachable from a plant network.
+:::
+
+The write endpoint is unaffected by the flag and always requires a valid token with write
+permission. A gateway whose `accessPermissions` have been tightened still enforces them, since the
+flag relaxes only this module's own requirement.
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">

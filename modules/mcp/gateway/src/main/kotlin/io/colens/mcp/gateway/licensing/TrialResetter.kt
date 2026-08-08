@@ -185,6 +185,32 @@ class TrialWatchdog private constructor(
 
     private val consecutiveFailures = AtomicInteger()
 
+    /**
+     * Reported on the gateway status card and `/data/mcp/health`.
+     *
+     * Tracked explicitly because it can't be inferred: [stopFromTick] cancels the task but leaves
+     * [task] and [executor] non-null, so "is there a future?" doesn't answer "is it still
+     * watching?", and the two ways of stopping mean very different things to a reader.
+     */
+    @Volatile private var state = State.OFF
+
+    /** @see state */
+    enum class State(val label: String) {
+        /** Never started — the watchdog is opt-in. */
+        OFF("off"),
+
+        /** Watching, and will reset the trial when it expires. */
+        RUNNING("running"),
+
+        /** Stopped itself because there is no longer a trial to reset, e.g. an activated gateway. */
+        STOOD_DOWN("stood down"),
+
+        /** Stopped itself after [MAX_CONSECUTIVE_FAILURES] failed resets. */
+        GAVE_UP("gave up"),
+    }
+
+    fun state(): String = state.label
+
     fun start() {
         // GatewayContext.getExecutionManager() would also do. A thread we own is preferred here
         // because the watchdog's whole job is to run correctly at the moment the gateway is
@@ -194,6 +220,7 @@ class TrialWatchdog private constructor(
         }
         task = exec.scheduleWithFixedDelay(::tick, intervalSeconds, intervalSeconds, TimeUnit.SECONDS)
         executor = exec
+        state = State.RUNNING
         logger.warn(
             "Trial watchdog is ON (-D{}=true, every {}s): this gateway's trial will be reset " +
                 "automatically whenever it expires, keeping it running indefinitely. Intended for " +
@@ -208,6 +235,7 @@ class TrialWatchdog private constructor(
         executor?.shutdownNow()
         task = null
         executor = null
+        state = State.OFF
     }
 
     private fun tick() {
@@ -226,6 +254,7 @@ class TrialWatchdog private constructor(
             } else {
                 // e.g. the gateway was activated while we were running: nothing left to do.
                 logger.info("Trial watchdog standing down: {}", outcome.reason)
+                state = State.STOOD_DOWN
                 stopFromTick()
             }
             consecutiveFailures.set(0)
@@ -238,6 +267,7 @@ class TrialWatchdog private constructor(
                     t.toString(),
                     t,
                 )
+                state = State.GAVE_UP
                 stopFromTick()
             } else {
                 logger.warn("Trial watchdog reset attempt failed ({}): {}", failures, t.toString())
