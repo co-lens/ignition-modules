@@ -13,7 +13,7 @@ import TabItem from '@theme/TabItem';
 
 | Endpoint | Credential | Tools |
 | --- | --- | --- |
-| `POST /data/mcp/mcp` | write | all 17, or 25 with Perspective installed |
+| `POST /data/mcp/mcp` | write | all 18, or 26 with Perspective installed |
 | `POST /data/mcp/mcp-readonly` | read | the 14 read-only ones, or 22 with Perspective |
 | `GET /data/mcp/health` | none | status, version, platform |
 

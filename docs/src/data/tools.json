@@ -276,6 +276,38 @@
                 "readOnlyHint": true,
                 "destructiveHint": false
               }
+            },
+            {
+              "name": "scan_resource_files",
+              "title": "Scan resource files from disk",
+              "description": "Makes the gateway re-read its resources from disk and load what is actually there. Use it after files were edited directly, or after a git checkout, pull, branch switch or stash, so the running gateway matches the working tree. On Ignition 8.3 this is the ONLY thing that makes a disk edit take effect: 8.3 never scans on its own. Two collections: \u0027projects\u0027 is data/projects (views, scripts, named queries) and \u0027config\u0027 is data/config (tags, device connections, themes) which exists only on 8.3. This scans EVERY project, not one — a project directory that has appeared is registered, and a project whose directory is GONE is deleted from the gateway, so check with the user before running it against a working tree you don\u0027t recognise. Follow up with read_project_resource to confirm the new contents actually loaded.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "description": "Which collection to scan. \u0027config\u0027 is Ignition 8.3 only.",
+                    "enum": [
+                      "both",
+                      "projects",
+                      "config"
+                    ],
+                    "default": "both"
+                  },
+                  "timeoutSeconds": {
+                    "type": "integer",
+                    "description": "How long to wait for the scan to finish. The scan carries on regardless — only the wait is bounded.",
+                    "default": 30
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Scan resource files from disk",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
             }
           ]
         },
@@ -907,6 +939,33 @@
                 "title": "List unsaved Designer changes",
                 "readOnlyHint": true,
                 "destructiveHint": false
+              }
+            },
+            {
+              "name": "merge_gateway_changes",
+              "title": "Merge gateway changes into this Designer",
+              "description": "Pulls changes made on the gateway into the open project — the same action as the Designer\u0027s \u0027update available\u0027 notification button. Use it after scan_resource_files on the gateway picked up edited files, or when the user says the Designer is showing stale resources. This REFUSES to run when an unsaved Designer edit conflicts with an incoming change, and names the resources, so your edits are never silently overwritten; on a refusal, tell the user to save or discard those resources in the Designer and call this again. Ignition reports no completion for an update, so this watches the project and tells you which resources actually arrived.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "waitSeconds": {
+                    "type": "integer",
+                    "description": "How long to watch for merged resources to arrive. The merge carries on regardless — only the wait is bounded.",
+                    "default": 15
+                  },
+                  "settleSeconds": {
+                    "type": "integer",
+                    "description": "How long to let a just-finished gateway scan\u0027s notification reach this Designer before the conflict check runs. Only paid when there are unsaved edits.",
+                    "default": 3
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Merge gateway changes into this Designer",
+                "readOnlyHint": false,
+                "destructiveHint": true
               }
             },
             {

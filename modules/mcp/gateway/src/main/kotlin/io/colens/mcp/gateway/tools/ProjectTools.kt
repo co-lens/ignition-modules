@@ -15,6 +15,8 @@ import io.colens.mcp.common.optString
 import io.colens.mcp.common.put
 import io.colens.mcp.common.requireString
 import io.colens.mcp.common.schema
+import io.colens.mcp.gateway.project.ResourceScanner
+import io.colens.mcp.gateway.project.ScanResult
 import java.nio.charset.StandardCharsets
 
 /**
@@ -26,10 +28,15 @@ import java.nio.charset.StandardCharsets
  */
 class ProjectTools(private val context: GatewayContext) {
 
+    // Constructor only stores the context, so the doc generator's stub is never called during
+    // construction — mirrors SystemTools' `private val trial = TrialResetter(context)`.
+    private val scanner = ResourceScanner(context)
+
     fun tools(): List<Tool> = listOf(
         listProjects(),
         listProjectResources(),
         readProjectResource(),
+        scanResourceFiles(),
     )
 
     private fun listProjects() = Tool(
@@ -168,6 +175,93 @@ class ProjectTools(private val context: GatewayContext) {
             }
         },
     )
+
+    private fun scanResourceFiles() = Tool(
+        name = "scan_resource_files",
+        title = "Scan resource files from disk",
+        description = "Makes the gateway re-read its resources from disk and load what is actually " +
+            "there. Use it after files were edited directly, or after a git checkout, pull, branch " +
+            "switch or stash, so the running gateway matches the working tree. On Ignition 8.3 " +
+            "this is the ONLY thing that makes a disk edit take effect: 8.3 never scans on its " +
+            "own. Two collections: 'projects' is data/projects (views, scripts, named queries) and " +
+            "'config' is data/config (tags, device connections, themes) which exists only on 8.3. " +
+            "This scans EVERY project, not one — a project directory that has appeared is " +
+            "registered, and a project whose directory is GONE is deleted from the gateway, so " +
+            "check with the user before running it against a working tree you don't recognise. " +
+            "Follow up with read_project_resource to confirm the new contents actually loaded.",
+        inputSchema = schema {
+            enumString(
+                "target",
+                "Which collection to scan. 'config' is Ignition 8.3 only.",
+                values = listOf("both", "projects", "config"),
+                default = "both",
+            )
+            integer(
+                "timeoutSeconds",
+                "How long to wait for the scan to finish. The scan carries on regardless — only " +
+                    "the wait is bounded.",
+                default = 30,
+            )
+        },
+        readOnly = false,
+        destructive = true,
+        handler = { args ->
+            val target = args.optString("target") ?: ResourceScanner.TARGET_BOTH
+            val timeoutSeconds = args.optInt("timeoutSeconds", 30).coerceIn(1, 300)
+            val results = scanner.scan(target, timeoutSeconds)
+
+            val scanned = results.filter { it.available }
+            val changedCount = scanned.sumOf { it.changedCount }
+            val timedOut = scanned.any { it.timedOut }
+
+            jsonObject {
+                put("target", target)
+                put("changedCount", changedCount)
+                put("timedOut", timedOut)
+                put("results", jsonArrayOf(results.map { it.toJson() }))
+                put("projects", jsonArrayOfStrings(context.projectManager.names))
+                put("note", when {
+                    timedOut ->
+                        "The scan did not finish within ${timeoutSeconds}s. It is still running — " +
+                            "anything listed is what had been reported by then. Re-read the " +
+                            "resources you care about rather than scanning again."
+                    changedCount == 0 ->
+                        "The scan finished and reported no changes: the gateway already matched " +
+                            "what is on disk. If you expected a change, check the file was written " +
+                            "where the gateway reads it (data/projects/<name>/ or data/config/)."
+                    else ->
+                        "The gateway now matches the files on disk. Any Designer with one of these " +
+                            "projects open will show an update notification; merge_gateway_changes " +
+                            "on the Designer endpoint applies it."
+                })
+            }
+        },
+    )
+
+    private fun ScanResult.toJson() = jsonObject {
+        put("target", target)
+        put("available", available)
+        put("reason", unavailableReason)
+        if (available) {
+            put("collectionsAdded", jsonArrayOfStrings(collectionsAdded))
+            put("collectionsDeleted", jsonArrayOfStrings(collectionsDeleted))
+            // Capped: a branch switch can touch thousands of resources, and the count is the
+            // useful part once a list stops being readable.
+            put("resourcesAdded", jsonArrayOfStrings(resourcesAdded.take(MAX_LISTED)))
+            put("resourcesModified", jsonArrayOfStrings(resourcesModified.take(MAX_LISTED)))
+            put("resourcesDeleted", jsonArrayOfStrings(resourcesDeleted.take(MAX_LISTED)))
+            put("resourcesAddedCount", resourcesAdded.size)
+            put("resourcesModifiedCount", resourcesModified.size)
+            put("resourcesDeletedCount", resourcesDeleted.size)
+            put("changedCount", changedCount)
+            put("timedOut", timedOut)
+            put("waitedMs", waitedMs)
+        }
+    }
+
+    private companion object {
+        const val MAX_LISTED = 100
+    }
 
     private fun resourceCollection(project: String) =
         context.projectManager.find(project).orElse(null)

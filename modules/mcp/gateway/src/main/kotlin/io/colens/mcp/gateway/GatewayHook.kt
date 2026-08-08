@@ -110,9 +110,12 @@ class GatewayHook : AbstractGatewayModuleHook() {
         // reading tag values. TOKEN_ACCESS resolves to accessPermissions, which is an empty
         // AllOf by default and so admits any valid token. Net effect:
         //
-        //   any valid API token                    -> the 14 read-only tools
-        //   token with gateway write permission    -> all 17, including tag writes, run_script
-        //                                             and reset_trial
+        //   any valid API token                    -> the read-only tools
+        //   token with gateway write permission    -> all of them, including tag writes,
+        //                                             run_script, reset_trial and the file scan
+        //
+        // Deliberately no counts here: they went stale twice. The generated tool reference on the
+        // docs site is the number that can't rot.
         mountMcpRoute(routes, "/mcp", ApiTokenManager.TOKEN_WRITE) { fullServer }
         mountMcpRoute(routes, "/mcp-readonly", ApiTokenManager.TOKEN_ACCESS) { readOnlyServer }
 

@@ -46,7 +46,7 @@ own, and the gateway endpoint has no project-write surface at all.
 | [Quickstart](./quickstart.md) | Install, credential, connect. |
 | [What you can ask for](./using.md) | What's actually possible, with examples. |
 | [Perspective](./perspective/index.md) | Reading, editing, validating and diagnosing views. |
-| [Tool reference](./tools/index.md) | All 44 tools, generated from the code. |
+| [Tool reference](./tools/index.md) | All 46 tools, generated from the code. |
 | [Endpoints & security](./endpoints.md) | The three endpoints and what guards them. |
 | [Troubleshooting](./troubleshooting.md) | 401s, 404s, missing tools. |
 | [Version differences](./versions.md) | 8.3 vs 8.1. |

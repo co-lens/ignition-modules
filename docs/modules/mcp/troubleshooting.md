@@ -124,6 +124,31 @@ The Designer bridge is a separate endpoint from the gateway's, with its own cred
 3. If your client isn't on the same machine as the Designer, the bridge binds to loopback by
    default. See [Reaching a Designer on another machine](./clients/remote-designer.md).
 
+## I edited a file and nothing happened
+
+Ignition serves what it loaded, not what is on disk. **On Ignition 8.3 nothing re-reads the disk
+unless you ask it to** — 8.3 has no periodic scan at all. (8.1 rescans projects roughly every five
+minutes, so there it eventually self-heals.)
+
+1. Run `scan_resource_files`. It reports which resources actually changed; `changedCount: 0` means
+   the gateway already matched the disk.
+2. If it reports nothing and you expected a change, check the file is somewhere the gateway reads:
+   `data/projects/<project>/…` for project resources, `data/config/…` for gateway config.
+3. Gateway config is file-based **only from 8.3**. On 8.1 it lives in `config.idb`, so
+   `target: config` reports itself unavailable and there is nothing a scan can do.
+4. If the gateway now has the change but a **Designer** still shows the old version, that's
+   expected — run `merge_gateway_changes` on the Designer endpoint.
+
+## merge_gateway_changes refuses with a conflict list
+
+Working as designed. It means an unsaved edit in the Designer touches the same resource as a change
+waiting on the gateway, and merging would discard your edit silently. Save or discard those
+resources in the Designer, then call it again.
+
+The check reflects what the gateway has already pushed to the Designer, so straight after a scan
+give the notification a moment to arrive — the tool waits a few seconds itself when there are
+unsaved edits, which you can extend with `settleSeconds`.
+
 ## The gateway stopped after two hours
 
 That's the Ignition trial expiring, not the module. `reset_trial` restarts the countdown, and

@@ -52,6 +52,32 @@ so seeing the quality next to the binding config is the answer.
 Project resources come back as their raw contents — `view.json` for Perspective views, `code.py`
 for scripts.
 
+## Work with files in git
+
+Ignition keeps its resources as files — project resources under `data/projects/`, and on 8.3 also
+gateway config under `data/config/`. Edit those files directly, or switch a git branch under them,
+and the running gateway carries on serving what it loaded at startup. **On Ignition 8.3 it never
+notices on its own**, so a scan is the only thing that makes a disk edit take effect.
+
+> *"I just switched branches — make the gateway load what's on disk now."*
+>
+> *"I edited `Page/Main`'s view.json by hand. Pick it up and tell me what changed."*
+>
+> *"My Designer is showing the old version after that scan — merge the gateway's changes in."*
+
+`scan_resource_files` re-reads from disk and reports which resources actually changed, at
+resource-level granularity. It covers both collections: `projects` for views, scripts and named
+queries, and `config` for tags, device connections and themes — the latter on 8.3 only, since 8.1
+keeps gateway config in a database rather than on disk.
+
+Two things to know before running it against an unfamiliar working tree:
+
+- **It scans every project, not one.** A project directory that has appeared gets registered, and a
+  project whose directory is *gone* gets deleted from the gateway.
+- **The Designer is separate.** A gateway scan doesn't update a Designer someone has open; that's
+  what `merge_gateway_changes` does, and it refuses rather than overwrite when an unsaved Designer
+  edit collides with an incoming change.
+
 ## Ask questions of your data
 
 > *"How many rejects per shift last week? The data's in the `production` database."*
@@ -82,7 +108,8 @@ silently and which these tools make unreachable.
 Worth knowing, so you don't wait for something that isn't coming:
 
 - **The gateway never mutates project resources.** All project editing goes through a Designer, so
-  a human reviews and saves. The gateway endpoint has no project-write surface at all.
+  a human reviews and saves. The gateway endpoint has no project-write surface at all — though
+  `scan_resource_files` makes it re-read them from disk, which can add or remove whole projects.
 - **`run_query` is read-only.** `SELECT`/`WITH` only.
 - **Writes need a write credential**, and that credential is powerful enough that the default
   posture is not to issue one. See [Endpoints and security](./endpoints.md).

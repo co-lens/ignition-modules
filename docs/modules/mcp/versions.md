@@ -7,7 +7,7 @@ sidebar_position: 3
 # Ignition 8.1 vs 8.3
 
 The module supports both platform lines, from two branches. **The tools are identical** — same
-names, same arguments, same behaviour, all 44 of them. What differs is how you authenticate and
+names, same arguments, same behaviour, all 46 of them. What differs is how you authenticate and
 what the file is called.
 
 :::warning The 8.1 line is time-limited
@@ -27,10 +27,13 @@ further is built. If you have a choice, use 8.3.
 | Download | `Ignition-MCP-<version>.modl` | `Ignition-MCP-81-<version>.modl` |
 | Release tag | `mcp-v*` | `mcp81-v*` |
 | Perspective | optional — the module loads without it | **required** — the module will not install without it |
+| Config file scan | `scan_resource_files` covers `target: config` | config lives in `config.idb`, not on disk, so that target reports itself unavailable |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
 
 Everything else — the [tool reference](./tools/index.md), [Perspective](./perspective/index.md),
-the Designer bridge, the trial tools — is the same on both.
+the Designer bridge, the trial tools — is the same on both. Note the *tool list* is identical even
+where a platform can't do something: `scan_resource_files` exists on both lines with the same
+arguments, and only the `config` target is unavailable on 8.1.
 
 ## Why 8.1 authentication is weaker
 

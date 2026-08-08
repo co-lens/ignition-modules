@@ -13,10 +13,10 @@ constructs the tool registries and dumps their metadata. The per-tool JSON comes
 `Tool.toJson()` method the MCP server uses on the wire — so a description here is, byte for byte,
 the description your model receives from `tools/list`. It cannot drift.
 
-- **[Gateway](./gateway.md)** — 25 tools, of which 3 are write-scoped.
-- **[Designer](./designer.md)** — 25 tools, of which 15 are write-scoped.
+- **[Gateway](./gateway.md)** — 26 tools, of which 4 are write-scoped.
+- **[Designer](./designer.md)** — 26 tools, of which 16 are write-scoped.
 
-Fifty entries, 44 distinct names: the six Perspective *read* tools are served on both scopes. They
+Fifty-two entries, 46 distinct names: the six Perspective *read* tools are served on both scopes. They
 aren't quite identical between the two — the `project` argument means something different on a
 Designer, which is always operating on the open project — so both are listed rather than
 cross-referenced.

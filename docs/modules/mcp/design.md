@@ -21,5 +21,5 @@ than being built:
   module bundles is the Kotlin stdlib.
 
 The same instinct shows up in the [tool reference](./tools/index.md) on this site: rather than
-maintain a parallel description of 50 tools, a build task constructs the real tool registries
+maintain a parallel description of 52 tools, a build task constructs the real tool registries
 against a stub context and dumps their metadata. The documentation is the code's own output.
