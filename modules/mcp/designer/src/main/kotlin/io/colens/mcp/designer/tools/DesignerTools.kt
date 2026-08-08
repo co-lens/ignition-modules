@@ -1,11 +1,13 @@
 package io.colens.mcp.designer.tools
 
 import com.inductiveautomation.ignition.common.gson.JsonArray
+import com.inductiveautomation.ignition.client.gateway_interface.GatewayConnectionManager
 import com.inductiveautomation.ignition.common.project.ChangeOperation
 import com.inductiveautomation.ignition.common.project.resource.ProjectResource
 import com.inductiveautomation.ignition.common.project.resource.ResourcePath
 import com.inductiveautomation.ignition.common.project.resource.ResourceType
 import com.inductiveautomation.ignition.designer.IgnitionDesigner
+import com.inductiveautomation.ignition.designer.project.DesignerProjectTreeImpl
 import com.inductiveautomation.ignition.designer.model.DesignerContext
 import io.colens.mcp.common.Constants
 import io.colens.mcp.common.McpArgumentException
@@ -382,26 +384,51 @@ class DesignerTools(private val context: DesignerContext) {
     )
 
     /**
-     * Resource paths where an unsaved Designer edit collides with a change the gateway has pushed.
+     * Resource paths where an unsaved Designer edit collides with a change waiting on the gateway.
      * Merging one of these is what would destroy the local edit.
      *
-     * Two predicates, deliberately unioned: `isConflict(path)` and `getConflicts(changes)` are both
-     * public API on both platform lines but take different internal code paths, and I could not
-     * prove they agree. A false refusal costs one Designer action; a false clear costs the user
-     * their work.
+     * This asks the gateway for the incoming changes and runs them through the project's own
+     * conflict test — the same two steps Ignition's `pullAndResolve` performs before it decides
+     * whether to open its resolution dialog. `pull` is the read half only: it returns diffs and
+     * applies nothing, which is why `pullAndResolve` can still abort afterwards without having
+     * changed the project.
+     *
+     * Two cheaper signals were tried first and measured against a real Designer. Both were wrong:
+     *
+     *  - `DesignableProject.isConflict(path)` walks up from the path's PARENT, so a sibling
+     *    changing under the same folder marked an untouched resource as conflicted — a false
+     *    refusal.
+     *  - `DesignerResourceEditManager.hasConflict(path)` reads state built from gateway push
+     *    notifications and never reported a genuine same-resource conflict at all, even ten
+     *    seconds after the change had landed. Not a timing problem — the wrong signal.
+     *
+     * Requires the concrete [DesignerProjectTreeImpl] for `getProjectSnapshots()`;
+     * `DesignerContextImpl` returns exactly that type, so the cast holds in a real Designer and
+     * degrades to "no conflicts detected" rather than an error if it ever doesn't.
+     *
+     * **8.1 port point.** 8.3 reaches the pull through `PlatformRpcInstances.PROJECTS_RPC.pull` and
+     * `getSnapshots()`; 8.1 goes through
+     * `GatewayConnectionManager.getInstance().gatewayInterface.pullProject` and
+     * `getProjectSnapshots()`, returning `ProjectDiff` rather than `ResourceCollectionDiff`. Same
+     * three steps, same meaning — this is the chain `PullTask` itself uses.
      */
     private fun conflictingPaths(): List<String> {
         val project = project()
-        val changes = project.changes.orEmpty()
+        val localChanges = project.changes.orEmpty()
+        if (localChanges.isEmpty()) return emptyList()
 
-        val byPath = changes
+        val tree = project as? DesignerProjectTreeImpl ?: return emptyList()
+        val incoming = runCatching {
+            GatewayConnectionManager.getInstance().gatewayInterface
+                .pullProject(tree.projectSnapshots)
+                .flatMap { it.changeOperations.orEmpty() }
+        }.getOrElse { return emptyList() }
+
+        return project.getConflicts(incoming)
             .mapNotNull { ChangeOperation.getResourceIdFromChange(it)?.resourcePath }
-            .filter { project.isConflict(it) }
-
-        val byOperation = project.getConflicts(changes)
-            .mapNotNull { ChangeOperation.getResourceIdFromChange(it)?.resourcePath }
-
-        return (byPath + byOperation).map { it.toString() }.distinct().sorted()
+            .map { it.toString() }
+            .distinct()
+            .sorted()
     }
 
     /** `resource path -> signature`, for the open project. */
