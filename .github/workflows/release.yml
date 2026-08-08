@@ -267,9 +267,19 @@ jobs:
           FINGERPRINT: ${{ steps.stage.outputs.fingerprint }}
         run: |
           set -euo pipefail
-          # --latest=true explicitly: the 8.1 line publishes into this same repo, and whichever
-          # release ran last would otherwise take the badge the README links to.
-          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag --latest=true)
+          # --latest is set explicitly rather than left to gh: the 8.1 line publishes into this
+          # same repo, and whichever release ran last would otherwise take the badge the README
+          # links to.
+          #
+          # It must be false for a prerelease. GitHub rejects make_latest=true on a prerelease with
+          # "HTTP 422: Latest release cannot be draft or prerelease", and because the same value is
+          # sent again by the `gh release edit` below, an rc tag failed *after* the release and its
+          # assets had been created — leaving a half-published release behind. Every -rcN and
+          # -betaN tag hit this; only stable releases had ever been cut.
+          latest=true
+          if [ "$PRERELEASE" = "true" ]; then latest=false; fi
+
+          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag --latest="$latest")
           if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
 
           gh release create "$TAG" "${args[@]}" \
@@ -288,4 +298,6 @@ jobs:
             echo '```'
             echo "The gateway shows this when it asks you to accept the module's certificate."
           } >> /tmp/body.md
-          gh release edit "$TAG" --notes-file /tmp/body.md
+          # --latest repeated deliberately: gh sends make_latest on edit too, so omitting it here
+          # reintroduces the 422 above on any prerelease.
+          gh release edit "$TAG" --notes-file /tmp/body.md --latest="$latest"
