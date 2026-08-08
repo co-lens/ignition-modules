@@ -54,6 +54,23 @@ const config: Config = {
     ],
   ],
 
+  themes: [
+    [
+      // Offline search, built at compile time — no Algolia account, no external requests, which
+      // keeps the site self-contained. It is a third-party theme coupled to Docusaurus internals,
+      // so treat a Docusaurus major upgrade as needing this checked.
+      require.resolve('@easyops-cn/docusaurus-search-local'),
+      {
+        hashed: true,
+        // Both docs instances, or the module pages — the bulk of the site — wouldn't be indexed.
+        docsRouteBasePath: ['/', 'modules'],
+        indexBlog: false,
+        highlightSearchTermsOnTargetPage: true,
+        searchResultLimits: 8,
+      },
+    ],
+  ],
+
   plugins: [
     [
       '@docusaurus/plugin-content-docs',

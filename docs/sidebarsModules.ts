@@ -3,44 +3,68 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 /**
  * One exported sidebar per module. A second module adds a key here, a folder under `modules/`, and
  * an entry in the navbar's Modules dropdown — nothing else.
+ *
+ * Ordered by what a reader is trying to do rather than by how the code is organised: get it
+ * running, learn what it can do, then look things up. Contributor material sits last, collapsed,
+ * so it doesn't compete with the user path.
+ *
+ * Sidebar structure is independent of file paths, so this grouping costs no URL changes.
  */
 const sidebars: SidebarsConfig = {
   mcpSidebar: [
     'mcp/index',
-    'mcp/quickstart',
-    'mcp/endpoints',
     {
       type: 'category',
-      label: 'Tool reference',
+      label: 'Get started',
       collapsed: false,
-      link: {type: 'doc', id: 'mcp/tools/index'},
-      items: ['mcp/tools/gateway', 'mcp/tools/designer'],
+      items: ['mcp/quickstart', 'mcp/versions'],
     },
     {
       type: 'category',
-      label: 'Perspective',
-      link: {type: 'doc', id: 'mcp/perspective/index'},
+      label: 'Using it',
+      collapsed: false,
       items: [
-        'mcp/perspective/editing',
-        'mcp/perspective/validation',
-        'mcp/perspective/live-diagnostics',
+        'mcp/using',
+        {
+          type: 'category',
+          label: 'Perspective',
+          link: {type: 'doc', id: 'mcp/perspective/index'},
+          items: [
+            'mcp/perspective/editing',
+            'mcp/perspective/validation',
+            'mcp/perspective/live-diagnostics',
+          ],
+        },
+        'mcp/clients/remote-designer',
       ],
     },
     {
       type: 'category',
-      label: 'Clients',
-      items: ['mcp/clients/remote-designer', 'mcp/clients/inspector'],
+      label: 'Reference',
+      collapsed: false,
+      items: [
+        {
+          type: 'category',
+          label: 'Tool reference',
+          link: {type: 'doc', id: 'mcp/tools/index'},
+          items: ['mcp/tools/gateway', 'mcp/tools/designer'],
+        },
+        'mcp/endpoints',
+        'mcp/troubleshooting',
+        'mcp/clients/inspector',
+      ],
     },
     {
       type: 'category',
       label: 'Contributing',
+      collapsed: true,
       items: [
         'mcp/contributing/building',
         'mcp/contributing/dev-gateway',
         'mcp/contributing/adding-a-tool',
+        'mcp/design',
       ],
     },
-    'mcp/design',
   ],
 };
 

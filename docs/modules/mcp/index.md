@@ -8,37 +8,45 @@ sidebar_position: 1
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that runs **inside** Ignition,
 as a Kotlin module. It gives an AI client structured access to a gateway — tags, project resources,
-SQL, tag history, alarms, logs — and, optionally, to a running Designer.
+SQL, tag history, alarms, logs — and, optionally, to a running Designer, where it can build and
+edit Perspective views.
 
-:::info Requires Ignition 8.3
-Module id `io.colens.mcp-ign`. Released as `mcp-v<version>`.
+:::info Supports Ignition 8.3 and 8.1
+Module id `io.colens.mcp-ign`. The tools are identical on both lines; authentication and the
+download name differ — see [version differences](./versions.md). **The 8.1 line is time-limited and
+unsupported after February 2027.**
 :::
 
-## Start here
+**[Start with the quickstart →](./quickstart.md)** Four steps, about ten minutes.
 
-**[Quickstart](./quickstart.md)** — four steps, about ten minutes, from download to a connected
-client.
+## What it's for
 
-## Then
+Reading and diagnosing, mostly. Point a model at a gateway you've never seen and ask what's on it;
+ask why a binding is returning bad quality; ask what changed in the log at 14:20. Then, with a
+Designer connected, ask it to build the view.
 
-- **[Endpoints](./endpoints.md)** — the three gateway endpoints, how write access is gated, and the
-  Designer bridge.
-- **[Tool reference](./tools/index.md)** — all 50 tools, generated from the module's own
-  declarations so nothing here can drift from what the model actually receives.
-- **[Perspective](./perspective/index.md)** — reading, editing, validating and diagnosing views.
-- **[Clients](./clients/remote-designer.md)** — reaching a Designer on another machine, and the MCP
-  Inspector.
-- **[Contributing](./contributing/building.md)** — building, the throwaway dev gateway, and adding
-  a tool.
-- **[Why it's small](./design.md)** — the design decisions that kept this to ~2,500 lines.
+[What you can ask for](./using.md) has worked examples of each.
 
 ## Two things worth knowing early
 
-**A write token is gateway root.** The write endpoint exposes `run_script`, which executes
+**A write credential is gateway root.** The write endpoint exposes `run_script`, which executes
 arbitrary Jython in gateway scope. Write gating is structural rather than advisory — the read-only
 endpoint is backed by a registry that doesn't contain the mutating tools — but the moment you issue
-a write token, you have handed over the gateway. [Endpoints](./endpoints.md) covers this properly.
+a write credential, you have handed over the gateway. Start read-only; it covers every diagnostic
+use. [Endpoints and security](./endpoints.md) covers this properly.
 
 **Designer writes are staged, not committed.** Everything the Designer tools write appears as an
 unsaved change for a human to review and save. Nothing in this module commits to the gateway on its
-own.
+own, and the gateway endpoint has no project-write surface at all.
+
+## Where to go next
+
+| | |
+| --- | --- |
+| [Quickstart](./quickstart.md) | Install, credential, connect. |
+| [What you can ask for](./using.md) | What's actually possible, with examples. |
+| [Perspective](./perspective/index.md) | Reading, editing, validating and diagnosing views. |
+| [Tool reference](./tools/index.md) | All 44 tools, generated from the code. |
+| [Endpoints & security](./endpoints.md) | The three endpoints and what guards them. |
+| [Troubleshooting](./troubleshooting.md) | 401s, 404s, missing tools. |
+| [Version differences](./versions.md) | 8.3 vs 8.1. |
