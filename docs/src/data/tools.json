@@ -167,6 +167,143 @@
                 "readOnlyHint": false,
                 "destructiveHint": true
               }
+            },
+            {
+              "name": "configure_tags",
+              "title": "Create or edit tag configuration",
+              "description": "Creates or edits tags, UDT definitions and UDT instances. Each entry in \u0027tags\u0027 is a configuration object in the same shape get_tag_config returns, carrying its own \u0027name\u0027; \u0027parentPath\u0027 is the folder they go into. Write UDT definitions to the provider\u0027s _types_ folder, e.g. parentPath \u0027[default]_types_\u0027.\n\nCollisions default to MergeOverwrite: properties you send are applied and properties you leave out keep their current values, so editing one setting does not require sending the whole tag. Use Overwrite only when you mean to REPLACE the configuration — it drops every property you did not send, including alarms and history settings. Use Abort to refuse to touch anything that already exists.\n\nThe configuration is validated first and the whole call is refused if anything is wrong, because Ignition\u0027s own parser accepts several broken inputs silently — most notably a UDT parameter given a value but no dataType, which it discards while reporting success.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "parentPath": {
+                    "type": "string",
+                    "description": "Folder the tags are created in, e.g. \u0027[default]Area1\u0027, \u0027[default]\u0027 for the provider root, or \u0027[default]_types_\u0027 for UDT definitions."
+                  },
+                  "tags": {
+                    "type": "array",
+                    "description": "Tag configuration objects, each with its own \u0027name\u0027.",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "collisionPolicy": {
+                    "type": "string",
+                    "description": "What to do when a tag already exists at that path.",
+                    "enum": [
+                      "Abort",
+                      "Overwrite",
+                      "Rename",
+                      "Ignore",
+                      "MergeOverwrite"
+                    ],
+                    "default": "MergeOverwrite"
+                  }
+                },
+                "required": [
+                  "parentPath",
+                  "tags"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Create or edit tag configuration",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "delete_tags",
+              "title": "Delete tags",
+              "description": "Removes tags, folders or UDT definitions and everything under them. Deleting a UDT definition breaks every instance of it, so check with browse_tags first. This cannot be undone from here.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "paths": {
+                    "type": "array",
+                    "description": "Tag paths to delete, e.g. \u0027[default]Area1/Old\u0027.",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "paths"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Delete tags",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "rename_tag",
+              "title": "Rename a tag",
+              "description": "Renames a tag in place. This is a real rename rather than a delete and recreate, so tag history and UDT instance membership survive it — but every reference to the old path, in bindings, scripts and other tags, breaks.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Tag path to rename, e.g. \u0027[default]Area1/Pmp1\u0027."
+                  },
+                  "newName": {
+                    "type": "string",
+                    "description": "The new name. Not a path — the tag stays where it is."
+                  }
+                },
+                "required": [
+                  "path",
+                  "newName"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Rename a tag",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
+            },
+            {
+              "name": "import_tags",
+              "title": "Import a tag export",
+              "description": "Applies a whole Designer-style tag export in one call — the JSON a tag export produces, with its top-level \u0027tags\u0027 array. Use this to move a folder or a type library; for individual tags configure_tags is easier to get right, since it validates each one and reports per-tag results.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "parentPath": {
+                    "type": "string",
+                    "description": "Folder to import into, e.g. \u0027[default]Area1\u0027 or \u0027[default]\u0027 for the root."
+                  },
+                  "json": {
+                    "type": "string",
+                    "description": "The tag export JSON, as a string."
+                  },
+                  "collisionPolicy": {
+                    "type": "string",
+                    "description": "What to do where the export overlaps existing tags.",
+                    "enum": [
+                      "Abort",
+                      "Overwrite",
+                      "Rename",
+                      "Ignore",
+                      "MergeOverwrite"
+                    ],
+                    "default": "MergeOverwrite"
+                  }
+                },
+                "required": [
+                  "parentPath",
+                  "json"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Import a tag export",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
             }
           ]
         },
@@ -605,6 +742,102 @@
           ]
         },
         {
+          "id": "performance",
+          "label": "Performance",
+          "tools": [
+            {
+              "name": "thread_dump",
+              "title": "Dump gateway threads",
+              "description": "Every thread in the gateway JVM: a state histogram, a per-subsystem breakdown grouped by thread name (Ignition names threads like \u0027perspective-worker-3\u0027, so the groups read as subsystems), any deadlock, and stack traces for the threads using the most CPU. Cumulative CPU here is measured since gateway startup — use thread_hotspots to see what is busy right now.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "nameContains": {
+                    "type": "string",
+                    "description": "Only include threads whose name contains this substring."
+                  },
+                  "topN": {
+                    "type": "integer",
+                    "description": "How many threads to report in full, ranked by cumulative CPU time.",
+                    "default": 25
+                  },
+                  "includeStacks": {
+                    "type": "boolean",
+                    "description": "Include stack traces for the reported threads.",
+                    "default": true
+                  },
+                  "maxFrames": {
+                    "type": "integer",
+                    "description": "Truncate each stack trace to this many frames.",
+                    "default": 12
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Dump gateway threads",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "thread_hotspots",
+              "title": "Sample thread CPU usage",
+              "description": "Samples per-thread CPU time twice over a short window and ranks threads by how much they burned in between, with the stack each was running at the end. This is the tool for \u0027what is pegging this gateway right now\u0027. Note it blocks for the sample window before returning.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "sampleSeconds": {
+                    "type": "integer",
+                    "description": "Length of the sampling window, 1-30 seconds.",
+                    "default": 5
+                  },
+                  "topN": {
+                    "type": "integer",
+                    "description": "How many threads to report, ranked by CPU used during the window.",
+                    "default": 15
+                  },
+                  "maxFrames": {
+                    "type": "integer",
+                    "description": "Truncate each stack trace to this many frames.",
+                    "default": 12
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Sample thread CPU usage",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "jvm_health",
+              "title": "JVM memory, GC and class loading",
+              "description": "Heap and non-heap usage, per-pool occupancy (which tells you which generation is under pressure), garbage collector counts and times, loaded class counts, direct buffer usage, uptime and the JVM\u0027s own launch arguments. Pass sampleSeconds to also measure GC time and process CPU as a percentage of wall clock over a window — a gateway spending a large fraction of its time collecting garbage is slow for a reason no log will show.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "sampleSeconds": {
+                    "type": "integer",
+                    "description": "Measure GC and CPU across a window of this many seconds (0-30). 0 reports instantaneous values only and returns immediately.",
+                    "default": 0
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "JVM memory, GC and class loading",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            }
+          ]
+        },
+        {
           "id": "perspective",
           "label": "Perspective",
           "tools": [
@@ -773,6 +1006,62 @@
               }
             },
             {
+              "name": "perspective_analyze_performance",
+              "title": "Analyze Perspective view performance",
+              "description": "Sweeps a project\u0027s views and reports what each costs to open and to keep open — components, bindings, how many of those poll, script transforms, nesting depth and embedded views — alongside findings for the specific things that make a view slow: fast polling, expressions that install their own timers, script transform chains, uncached polled queries, and views repeated many times over by a repeater or carousel. Heaviest views come first. Pass \u0027view\u0027 to analyze a single view instead.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Project name."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "Analyze only this view, e.g. \u0027Page/Main\u0027."
+                  },
+                  "pathContains": {
+                    "type": "string",
+                    "description": "Only analyze views whose path contains this substring."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of views to analyze.",
+                    "default": 100
+                  },
+                  "minPollSeconds": {
+                    "type": "integer",
+                    "description": "Flag polling bindings faster than this many seconds.",
+                    "default": 5
+                  },
+                  "componentBudget": {
+                    "type": "integer",
+                    "description": "Flag views with more components than this.",
+                    "default": 150
+                  },
+                  "bindingBudget": {
+                    "type": "integer",
+                    "description": "Flag views with more bindings than this.",
+                    "default": 200
+                  },
+                  "depthBudget": {
+                    "type": "integer",
+                    "description": "Flag views nested deeper than this many levels.",
+                    "default": 12
+                  }
+                },
+                "required": [
+                  "project"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Analyze Perspective view performance",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
               "name": "perspective_list_sessions",
               "title": "List Perspective sessions",
               "description": "Lists the Perspective sessions currently running on this gateway, with their ids, project, user and open page count. Use an id with perspective_diagnose_live_view.",
@@ -816,6 +1105,44 @@
               },
               "annotations": {
                 "title": "Diagnose a running Perspective view",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
+              "name": "perspective_session_performance",
+              "title": "Perspective session performance",
+              "description": "What each running session is costing the gateway: queue depth, uptime, page/view/component/binding counts, and timings for the scripts, expressions, fetches and queued tasks it has run. Read queueDepth first — every session serializes all its work through one queue, so a queue that is not draining is a session that feels slow, and it shows there before any average moves. Also reports the gateway-wide script and expression timers. Set includeViews to see which views are mounted and how long each has been resident.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "sortBy": {
+                    "type": "string",
+                    "description": "How to rank sessions.",
+                    "enum": [
+                      "queueDepth",
+                      "uptime",
+                      "bindings",
+                      "scriptTime"
+                    ],
+                    "default": "queueDepth"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of sessions to report.",
+                    "default": 20
+                  },
+                  "includeViews": {
+                    "type": "boolean",
+                    "description": "Include the pages and views open in each session, with how long each has been mounted. Component and binding counts are reported per session, not per view.",
+                    "default": false
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Perspective session performance",
                 "readOnlyHint": true,
                 "destructiveHint": false
               }
@@ -1042,6 +1369,22 @@
                 "readOnlyHint": false,
                 "destructiveHint": true
               }
+            },
+            {
+              "name": "save_project",
+              "title": "Save the open project to the gateway",
+              "description": "Commits this Designer\u0027s staged changes to the gateway — the equivalent of a human pressing Save. Available only because this Designer was started with -Dmcp.designer.allowSave\u003dtrue.\n\nRefuses when a staged edit conflicts with a change already waiting on the gateway, naming the resources, so a merge is never silently resolved in your favour; run merge_gateway_changes first in that case. Does nothing and reports zero when there is nothing staged. Reports the resource paths it committed, so a script can check rather than assume — list_pending_changes returning 0 afterwards is the invariant.\n\nOne limitation worth knowing: this pushes what is in the project tree, and does not flush editors a human has open and unsaved in this Designer. On an unattended Designer there are none. If somebody is working in this one, their open editor\u0027s content will not be included.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Save the open project to the gateway",
+                "readOnlyHint": false,
+                "destructiveHint": true
+              }
             }
           ]
         },
@@ -1209,9 +1552,63 @@
               }
             },
             {
+              "name": "perspective_analyze_performance",
+              "title": "Analyze Perspective view performance",
+              "description": "Sweeps a project\u0027s views and reports what each costs to open and to keep open — components, bindings, how many of those poll, script transforms, nesting depth and embedded views — alongside findings for the specific things that make a view slow: fast polling, expressions that install their own timers, script transform chains, uncached polled queries, and views repeated many times over by a repeater or carousel. Heaviest views come first. Pass \u0027view\u0027 to analyze a single view instead.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "project": {
+                    "type": "string",
+                    "description": "Ignored — the Designer operates on the open project."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "Analyze only this view, e.g. \u0027Page/Main\u0027."
+                  },
+                  "pathContains": {
+                    "type": "string",
+                    "description": "Only analyze views whose path contains this substring."
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of views to analyze.",
+                    "default": 100
+                  },
+                  "minPollSeconds": {
+                    "type": "integer",
+                    "description": "Flag polling bindings faster than this many seconds.",
+                    "default": 5
+                  },
+                  "componentBudget": {
+                    "type": "integer",
+                    "description": "Flag views with more components than this.",
+                    "default": 150
+                  },
+                  "bindingBudget": {
+                    "type": "integer",
+                    "description": "Flag views with more bindings than this.",
+                    "default": 200
+                  },
+                  "depthBudget": {
+                    "type": "integer",
+                    "description": "Flag views nested deeper than this many levels.",
+                    "default": 12
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "title": "Analyze Perspective view performance",
+                "readOnlyHint": true,
+                "destructiveHint": false
+              }
+            },
+            {
               "name": "perspective_create_view",
               "title": "Create a Perspective view",
-              "description": "Creates a new view with an empty root container. Defaults for the container come from the component registry, so the view opens correctly in the Designer.",
+              "description": "Creates a new view with an empty root container. Only properties you set are written — Perspective applies the type\u0027s schema defaults at runtime, and leaving them out of the file is what the Designer itself does.",
               "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1253,7 +1650,7 @@
             {
               "name": "perspective_add_component",
               "title": "Add a Perspective component",
-              "description": "Adds a component to a container. Default properties and the child position shape both come from the registry — position depends on the PARENT container type, so letting this tool supply it is what makes the component lay out correctly. The name is made unique among its siblings automatically.",
+              "description": "Adds a component to a container. The child position shape comes from the registry — it depends on the PARENT container type, so letting this tool supply it is what makes the component lay out correctly. Properties are NOT pre-filled with the type\u0027s defaults: only what you pass in \u0027props\u0027 is written, which is how Perspective stores views and what keeps an absent property meaning \u0027still at its default\u0027. Call perspective_get_component_type to see what a type accepts. The name is made unique among its siblings automatically.",
               "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1279,7 +1676,7 @@
                   },
                   "props": {
                     "type": "object",
-                    "description": "Property values to set, merged over the type\u0027s defaults."
+                    "description": "Property values to set. Written as given; defaults are not added."
                   },
                   "position": {
                     "type": "object",

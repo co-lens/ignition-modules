@@ -36,8 +36,9 @@ a write credential, you have handed over the gateway. Start read-only; it covers
 use. [Endpoints and security](./endpoints.md) covers this properly.
 
 **Designer writes are staged, not committed.** Everything the Designer tools write appears as an
-unsaved change for a human to review and save. Nothing in this module commits to the gateway on its
-own, and the gateway endpoint has no project-write surface at all.
+unsaved change for a human to review and save, and the gateway endpoint has no project-write
+surface at all. One opt-in tool commits — `save_project`, off unless the Designer was started with
+`-Dmcp.designer.allowSave=true`. See [Saving from a Designer](./designer-save.md).
 
 ## Where to go next
 
@@ -46,7 +47,10 @@ own, and the gateway endpoint has no project-write surface at all.
 | [Quickstart](./quickstart.md) | Install, credential, connect. |
 | [What you can ask for](./using.md) | What's actually possible, with examples. |
 | [Perspective](./perspective/index.md) | Reading, editing, validating and diagnosing views. |
-| [Tool reference](./tools/index.md) | All 46 tools, generated from the code. |
+| [Tags and UDTs](./tags.md) | Reading and writing tag configuration. |
+| [Saving from a Designer](./designer-save.md) | Committing staged edits unattended. |
+| [Performance](./performance.md) | Why a gateway, a session or a view is slow. |
+| [Tool reference](./tools/index.md) | All 56 tools, generated from the code. |
 | [Endpoints & security](./endpoints.md) | The three endpoints and what guards them. |
 | [Troubleshooting](./troubleshooting.md) | 401s, 404s, missing tools. |
 | [Version differences](./versions.md) | 8.3 vs 8.1. |

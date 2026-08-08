@@ -29,7 +29,11 @@ import javax.swing.SwingUtilities
  *
  * The point of these over the gateway equivalents is that writes land as **unsaved Designer
  * changes**: they show up in the Designer exactly as if a person had typed them, and a human
- * still has to review and Save before anything reaches the gateway. Nothing here commits.
+ * still has to review and Save before anything reaches the gateway. Nothing in [tools] commits.
+ *
+ * The single exception is [saveTool], which is deliberately not in that list — see its own
+ * documentation and [SAVE_PROPERTY]. It is registered only when the gateway operator has opted in,
+ * so on a default Designer the guarantee above holds without qualification.
  */
 class DesignerTools(private val context: DesignerContext) {
 
@@ -224,7 +228,7 @@ class DesignerTools(private val context: DesignerContext) {
                     put("created", existing == null)
                     put("bytesWritten", content.toByteArray(StandardCharsets.UTF_8).size)
                     put("committed", false)
-                    put("note", "Staged as an unsaved Designer change. Save in the Designer to apply it.")
+                    put("note", "Staged as an unsaved Designer change. Save in the Designer to apply it, or call save_project where that tool is available.")
                 }
             }
         },
@@ -254,7 +258,130 @@ class DesignerTools(private val context: DesignerContext) {
                     put("project", context.projectName)
                     put("path", resourcePath.toString())
                     put("committed", false)
-                    put("note", "Staged as an unsaved Designer change. Save in the Designer to apply it.")
+                    put("note", "Staged as an unsaved Designer change. Save in the Designer to apply it, or call save_project where that tool is available.")
+                }
+            }
+        },
+    )
+
+    // -----------------------------------------------------------------------
+    // Saving — opt-in, and not part of tools()
+    // -----------------------------------------------------------------------
+
+    /**
+     * Commits the Designer's staged changes to the gateway.
+     *
+     * **Deliberately not in [tools].** `DesignerHook` adds it only when [SAVE_PROPERTY] is set, so
+     * a default Designer has no committing tool at all and the staging guarantee is unqualified.
+     * The doc generator lists it unconditionally, because a feature nobody can read about is worse
+     * than one they have to switch on.
+     *
+     * It exists because "the human is not in the building" is an ordinary state — remote work, a
+     * VM, CI, a scheduled run — and the alternative is not that nothing gets committed, it is that
+     * people invent their own route. One already did: reading staged bytes back out with
+     * `read_resource` and writing them to disk. The staging boundary did not prevent that, it only
+     * made it indirect.
+     *
+     * **Implementation note, and the one real limitation.** There is no public save API:
+     * `DesignerContext` and `DesignableProject` both lack one, and the real Ctrl+S path
+     * (`IgnitionDesigner.handleSave`) is private. This goes through `ProjectsRpc` directly, which
+     * is public, verified and *synchronous* — so push failures come back as tool errors rather
+     * than as a dialog nobody is there to read. What it skips is `IgnitionDesigner.commitAll()`,
+     * also private, which flushes open editor buffers into the project tree. A human sitting at
+     * this Designer with an unsaved editor open gets that editor's content left behind. The tool
+     * cannot detect it, so it says so in its own description.
+     */
+    fun saveTool() = Tool(
+        name = "save_project",
+        title = "Save the open project to the gateway",
+        description = "Commits this Designer's staged changes to the gateway — the equivalent of " +
+            "a human pressing Save. Available only because this Designer was started with " +
+            "-D$SAVE_PROPERTY=true.\n\n" +
+            "Refuses when a staged edit conflicts with a change already waiting on the gateway, " +
+            "naming the resources, so a merge is never silently resolved in your favour; run " +
+            "merge_gateway_changes first in that case. Does nothing and reports zero when there " +
+            "is nothing staged. Reports the resource paths it committed, so a script can check " +
+            "rather than assume — list_pending_changes returning 0 afterwards is the invariant.\n\n" +
+            "One limitation worth knowing: this pushes what is in the project tree, and does not " +
+            "flush editors a human has open and unsaved in this Designer. On an unattended " +
+            "Designer there are none. If somebody is working in this one, their open editor's " +
+            "content will not be included.",
+        inputSchema = schema(),
+        readOnly = false,
+        destructive = true,
+        handler = {
+            // Read project state on the EDT; do the RPC off it. onEdt blocks with no timeout, and
+            // a push can take as long as the gateway takes — see the note in merge_gateway_changes
+            // about parking the bridge's HTTP threads.
+            val changes = onEdt { project().changes.orEmpty().toList() }
+
+            if (changes.isEmpty()) {
+                jsonObject {
+                    put("project", context.projectName)
+                    put("committed", 0)
+                    put("resources", JsonArray())
+                    put("note", "Nothing was staged, so nothing was committed.")
+                }
+            } else {
+                val canSave = runCatching {
+                    PlatformRpcInstances.PROJECTS_RPC.canSaveProject(context.projectName)
+                }.getOrDefault(true)
+                if (!canSave) {
+                    throw McpArgumentException(
+                        "The gateway will not accept a save of '${context.projectName}' from this " +
+                            "Designer — most likely the logged-in user lacks project save rights."
+                    )
+                }
+
+                // Same pre-flight as merge_gateway_changes, and for the same reason: this is the
+                // case where "a human reviews it" was doing real work, so it survives unattended.
+                val conflicts = onEdt { conflictingPaths() }
+                if (conflicts.isNotEmpty()) {
+                    throw McpArgumentException(
+                        "Refusing to save: ${conflicts.size} staged edit(s) conflict with changes " +
+                            "waiting on the gateway. Saving would resolve that in this Designer's " +
+                            "favour without anyone looking. Call merge_gateway_changes first, or " +
+                            "ask the user to reconcile these in the Designer. Conflicting " +
+                            "resources: ${conflicts.joinToString(", ")}"
+                    )
+                }
+
+                val paths = changes.mapNotNull {
+                    ChangeOperation.getResourceIdFromChange(it)?.resourcePath?.toString()
+                }.distinct().sorted()
+
+                try {
+                    PlatformRpcInstances.PROJECTS_RPC.push(changes.toList())
+                } catch (e: Exception) {
+                    throw McpArgumentException(
+                        "The gateway rejected the save: ${e.message ?: e.javaClass.simpleName}. " +
+                            "Nothing was committed and the changes are still staged here."
+                    )
+                }
+
+                // Tells the Designer its changes landed, so its own change list drains and the UI
+                // stops showing them as pending.
+                onEdt {
+                    (project() as? DesignerProjectTreeImpl)?.notifyPushComplete(changes.toList())
+                }
+
+                val remaining = onEdt { project().changes.orEmpty().size }
+
+                jsonObject {
+                    put("project", context.projectName)
+                    put("committed", paths.size)
+                    put("resources", jsonArrayOfStrings(paths))
+                    put("pendingAfter", remaining)
+                    put(
+                        "note",
+                        if (remaining == 0) {
+                            "Committed to the gateway. Nothing is staged in this Designer now."
+                        } else {
+                            "Committed to the gateway, but $remaining change(s) are still staged — " +
+                                "most likely edits made while the save was in flight. Call this " +
+                                "again to commit those too."
+                        },
+                    )
                 }
             }
         },
@@ -474,9 +601,22 @@ class DesignerTools(private val context: DesignerContext) {
         return (System.nanoTime() - started) / 1_000_000
     }
 
-    private companion object {
-        const val POLL_MILLIS = 250L
-        const val QUIET_MILLIS = 750L
+    companion object {
+        private const val POLL_MILLIS = 250L
+        private const val QUIET_MILLIS = 750L
+
+        /**
+         * `-Dmcp.designer.allowSave=true` registers [saveTool]. Named as a `const` so the WARN and
+         * the tool's own description interpolate it and can never drift from the string read here.
+         *
+         * Off by default, because committing without review is exactly what the Designer scope
+         * exists not to do. On, it is loud — see `DesignerHook`.
+         */
+        const val SAVE_PROPERTY = "mcp.designer.allowSave"
+
+        /** Tolerant of the whitespace a shell-quoted `-D` can leave behind. */
+        fun saveAllowed(): Boolean =
+            System.getProperty(SAVE_PROPERTY)?.trim()?.equals("true", ignoreCase = true) == true
     }
 
     /**

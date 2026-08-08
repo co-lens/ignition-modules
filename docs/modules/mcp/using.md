@@ -91,7 +91,8 @@ changing data. `query_tag_history` goes to the historian with a time window and 
 
 This is the part that needs a **Designer** connected, and it's the most substantial capability
 here. Every edit is staged as an unsaved Designer change for you to review and save — nothing is
-committed on your behalf.
+committed on your behalf unless the Designer was started with
+[saving enabled](./designer-save.md).
 
 > *"Create a view at `Page/LineStatus` with a label bound to `[default]Line1/Speed`."*
 >

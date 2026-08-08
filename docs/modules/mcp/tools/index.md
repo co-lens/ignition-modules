@@ -13,10 +13,10 @@ constructs the tool registries and dumps their metadata. The per-tool JSON comes
 `Tool.toJson()` method the MCP server uses on the wire — so a description here is, byte for byte,
 the description your model receives from `tools/list`. It cannot drift.
 
-- **[Gateway](./gateway.md)** — 26 tools, of which 4 are write-scoped.
-- **[Designer](./designer.md)** — 26 tools, of which 16 are write-scoped.
+- **[Gateway](./gateway.md)** — 35 tools, of which 8 are write-scoped.
+- **[Designer](./designer.md)** — 28 tools, of which 17 are write-scoped (one of them opt-in).
 
-Fifty-two entries, 46 distinct names: the six Perspective *read* tools are served on both scopes. They
+Sixty-three entries, 56 distinct names: the seven Perspective *read* tools are served on both scopes. They
 aren't quite identical between the two — the `project` argument means something different on a
 Designer, which is always operating on the open project — so both are listed rather than
 cross-referenced.
@@ -41,5 +41,6 @@ gateway. See [Endpoints](../endpoints.md).
 
 The `perspective_*` tools only appear when Perspective is installed on the gateway; without it they
 are simply absent from `tools/list` rather than present and broken. Reading and diagnosing work
-from either scope; **editing is Designer-only** and every edit stages as an unsaved Designer change.
+from either scope; **editing is Designer-only** and every edit stages as an unsaved Designer change,
+which only `save_project` commits, and only when [enabled](../designer-save.md).
 See [Perspective](../perspective/index.md).

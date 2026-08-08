@@ -29,22 +29,31 @@ gateway refuses to install.**
 <Tabs groupId="ignition-version" queryString>
 <TabItem value="83" label="Ignition 8.3" default>
 
+Releases are tagged `mcp-v<version>`; the asset is `Ignition-MCP-<version>.modl`. **Name the tag**
+— substitute the version from the releases page:
+
 ```bash
-gh release download --repo co-lens/ignition-modules --pattern 'Ignition-MCP-[0-9]*'
-sha256sum -c Ignition-MCP-*.modl.sha256
+gh release download mcp-v0.2.0 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-0.2.0.modl*'
+sha256sum -c Ignition-MCP-0.2.0.modl.sha256
 ```
 
-Releases are tagged `mcp-v<version>`; the asset is `Ignition-MCP-<version>.modl`.
+:::note Why the tag rather than a pattern
+`gh release download` with no tag takes the *latest* release, and the two platform lines publish
+separately — so whichever went out last wins, regardless of which one you want. A pattern doesn't
+save you either: `'Ignition-MCP-[0-9]*'` matches `Ignition-MCP-81-<version>.modl`, because the `8`
+of `-81-` satisfies `[0-9]`. Naming the tag settles both, since a tag belongs to exactly one line.
+:::
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">
 
-```bash
-gh release download --repo co-lens/ignition-modules --pattern 'Ignition-MCP-81-*'
-sha256sum -c Ignition-MCP-81-*.modl.sha256
-```
+Releases are tagged `mcp81-v<version>`; the asset is `Ignition-MCP-81-<version>.modl`. Name the tag
+here too — without one you get whichever line published most recently:
 
-Releases are tagged `mcp81-v<version>`; the asset is `Ignition-MCP-81-<version>.modl`.
+```bash
+gh release download mcp81-v0.2.0 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-81-0.2.0.modl*'
+sha256sum -c Ignition-MCP-81-0.2.0.modl.sha256
+```
 
 The 8.1 line also **requires Perspective** to be installed on the gateway — see
 [version differences](./versions.md).
@@ -194,6 +203,10 @@ gateway have?"* — it will call `list_tag_providers` on its own.
 The gateway sees saved project state. A Designer additionally exposes *unsaved* edits, and its
 write tools **stage** changes for a human to review rather than committing them — which is what
 makes Perspective view editing safe.
+
+Worth being precise about, since the two scopes differ: staging is a property of the *Designer's*
+write tools only. The gateway's write tools — `write_tags`, `configure_tags`, `delete_tags`,
+`run_script` and the rest — commit immediately, with nothing to review and no undo.
 
 Install the same module (it carries both scopes), open a project, then use
 **Tools → MCP Connection Info…** for a ready-to-paste command. The Designer bridge works

@@ -36,3 +36,6 @@ See **[Editing views](./editing.md)** for how the 13 edit tools fit together.
 - **[Validation](./validation.md)** — what `perspective_validate_view` catches, and why those
   mistakes are silent.
 - **[Live diagnostics](./live-diagnostics.md)** — inspecting a view in a running session.
+
+For what a view or a session *costs* rather than whether it is correct, see
+**[Performance](../performance.md)**.

@@ -11,6 +11,7 @@ import io.colens.mcp.common.put
 import io.colens.mcp.designer.tools.DesignerTools
 import io.colens.mcp.designer.tools.PerspectiveEditTools
 import io.colens.mcp.gateway.tools.DataTools
+import io.colens.mcp.gateway.tools.PerfTools
 import io.colens.mcp.gateway.tools.PerspectiveTools
 import io.colens.mcp.gateway.tools.ProjectTools
 import io.colens.mcp.gateway.tools.SystemTools
@@ -55,6 +56,7 @@ fun main(args: Array<String>) {
                     group("projects", "Projects", ProjectTools(gateway).tools()),
                     group("data", "Data", DataTools(gateway).tools()),
                     group("system", "System", SystemTools(gateway).tools()),
+                    group("performance", "Performance", PerfTools(gateway).tools()),
                     group("perspective", "Perspective", PerspectiveTools(gateway).tools()),
                 ),
             ),
@@ -63,7 +65,10 @@ fun main(args: Array<String>) {
                 label = "Designer",
                 endpoint = "POST http://127.0.0.1:<port>/mcp",
                 groups = listOf(
-                    group("designer", "Designer", DesignerTools(designer).tools()),
+                    // saveTool() is listed explicitly: it is registered only when
+                    // -Dmcp.designer.allowSave=true, so it is absent from tools(), but it still
+                    // needs documenting or nobody can find out the flag exists.
+                    DesignerTools(designer).let { group("designer", "Designer", it.tools() + it.saveTool()) },
                     group("perspective", "Perspective", PerspectiveEditTools(designer).tools()),
                 ),
             ),

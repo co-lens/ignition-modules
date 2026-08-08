@@ -6,9 +6,9 @@ sidebar_position: 3
 
 # Ignition 8.1 vs 8.3
 
-The module supports both platform lines, from two branches. **The tools are identical** — same
-names, same arguments, same behaviour, all 46 of them. What differs is how you authenticate and
-what the file is called.
+The module supports both platform lines, from two branches. What differs is how you authenticate,
+what the file is called, and — for the first time — a handful of tools the 8.1 line will not be
+getting.
 
 :::warning The 8.1 line is time-limited
 It exists for people who can't move to 8.3 yet, receives only security and wrong-data bug fixes,
@@ -28,12 +28,18 @@ further is built. If you have a choice, use 8.3.
 | Release tag | `mcp-v*` | `mcp81-v*` |
 | Perspective | optional — the module loads without it | **required** — the module will not install without it |
 | Config file scan | `scan_resource_files` covers `target: config` | config lives in `config.idb`, not on disk, so that target reports itself unavailable |
+| [Performance tools](./performance.md) | all five | absent — the 8.1 branch is frozen to security and wrong-data fixes, and these are neither |
+| [`save_project`](./designer-save.md) | opt-in via `-Dmcp.designer.allowSave` | absent, same freeze |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
 
 Everything else — the [tool reference](./tools/index.md), [Perspective](./perspective/index.md),
-the Designer bridge, the trial tools — is the same on both. Note the *tool list* is identical even
-where a platform can't do something: `scan_resource_files` exists on both lines with the same
-arguments, and only the `config` target is unavailable on 8.1.
+the Designer bridge, the trial tools — is the same on both, and where a platform can't do something
+the tool still exists with the same arguments rather than disappearing: `scan_resource_files` is on
+both lines, and only its `config` target is unavailable on 8.1.
+
+The performance tools are the one real divergence. They are new capability, not a fix, so they land
+on 8.3 only — which is the 8.1 branch's freeze working as intended rather than a platform
+limitation. Nothing in them needs an 8.3 API.
 
 ## Why 8.1 authentication is weaker
 

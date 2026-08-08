@@ -11,9 +11,11 @@ import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.optInt
 import io.colens.mcp.common.optString
 import io.colens.mcp.common.perspective.ComponentCatalog
+import io.colens.mcp.common.perspective.mergeJson
+import io.colens.mcp.common.perspective.newComponentNode
 import io.colens.mcp.common.perspective.PerspectiveComponentCatalog
 import io.colens.mcp.common.perspective.PerspectiveReadTools
-import io.colens.mcp.common.perspective.Severity
+import io.colens.mcp.common.Severity
 import io.colens.mcp.common.perspective.ViewDocument
 import io.colens.mcp.common.perspective.ViewSource
 import io.colens.mcp.common.perspective.ViewValidator
@@ -124,17 +126,8 @@ class PerspectiveEditTools(private val context: DesignerContext) {
         return element.asJsonObject
     }
 
-    /** Merges [patch] into [target], recursing into nested objects rather than replacing them. */
-    private fun merge(target: JsonObject, patch: JsonObject) {
-        patch.entrySet().forEach { (key, value) ->
-            val existing = target.get(key)
-            if (value.isJsonObject && existing != null && existing.isJsonObject) {
-                merge(existing.asJsonObject, value.asJsonObject)
-            } else {
-                target.add(key, value)
-            }
-        }
-    }
+    /** Shared with `newComponentNode`'s callers; the implementation lives in `:common`. */
+    private fun merge(target: JsonObject, patch: JsonObject) = mergeJson(target, patch)
 
     // -----------------------------------------------------------------------
     // Views
@@ -143,8 +136,9 @@ class PerspectiveEditTools(private val context: DesignerContext) {
     private fun createView() = Tool(
         name = "perspective_create_view",
         title = "Create a Perspective view",
-        description = "Creates a new view with an empty root container. Defaults for the container " +
-            "come from the component registry, so the view opens correctly in the Designer.",
+        description = "Creates a new view with an empty root container. Only properties you set are " +
+            "written \u2014 Perspective applies the type's schema defaults at runtime, and leaving them " +
+            "out of the file is what the Designer itself does.",
         inputSchema = schema {
             string("project", "Ignored — the Designer operates on the open project.")
             string("view", "View path to create, e.g. 'Page/Main'.", required = true)
@@ -166,13 +160,15 @@ class PerspectiveEditTools(private val context: DesignerContext) {
                 throw McpArgumentException("View '$viewPath' already exists.")
             }
 
-            val info = catalog.describe(rootType)
-            val root = jsonObject {
-                put("type", rootType)
-                put("meta", jsonObject { put("name", "root") })
-                put("props", info?.defaultProperties?.deepCopy() ?: JsonObject())
-                put("children", JsonArray())
-            }
+            // No props and no position: a root container has no parent, and an empty props object
+            // is what the Designer writes for a container nobody has configured yet.
+            val root = newComponentNode(
+                type = rootType,
+                name = "root",
+                defaultMetaName = null,
+                props = null,
+                position = null,
+            ).apply { add("children", JsonArray()) }
 
             val doc = ViewDocument.create(root)
             doc.props("view").add("defaultSize", jsonObject {
@@ -199,10 +195,13 @@ class PerspectiveEditTools(private val context: DesignerContext) {
     private fun addComponent() = Tool(
         name = "perspective_add_component",
         title = "Add a Perspective component",
-        description = "Adds a component to a container. Default properties and the child position " +
-            "shape both come from the registry — position depends on the PARENT container type, so " +
-            "letting this tool supply it is what makes the component lay out correctly. The name is " +
-            "made unique among its siblings automatically.",
+        description = "Adds a component to a container. The child position shape comes from the " +
+            "registry \u2014 it depends on the PARENT container type, so letting this tool supply it is " +
+            "what makes the component lay out correctly. Properties are NOT pre-filled with the " +
+            "type's defaults: only what you pass in 'props' is written, which is how Perspective " +
+            "stores views and what keeps an absent property meaning 'still at its default'. Call " +
+            "perspective_get_component_type to see what a type accepts. The name is made unique " +
+            "among its siblings automatically.",
         inputSchema = schema {
             viewArgs(this)
             string("parentPath", "Container to add to, e.g. 'root' or 'root/FlexContainer'.", required = true)
@@ -210,7 +209,7 @@ class PerspectiveEditTools(private val context: DesignerContext) {
             string("name", "Component name. Defaults to the type's default, made unique.")
             raw("props", jsonObject {
                 put("type", "object")
-                put("description", "Property values to set, merged over the type's defaults.")
+                put("description", "Property values to set. Written as given; defaults are not added.")
             })
             raw("position", jsonObject {
                 put("type", "object")
@@ -238,17 +237,19 @@ class PerspectiveEditTools(private val context: DesignerContext) {
                 val info = catalog.describe(type)
                 val parentInfo = parentType?.let { catalog.describe(it) }
 
-                val node = jsonObject {
-                    put("type", type)
-                    put("meta", jsonObject {
-                        put("name", args.optString("name") ?: info?.defaultMetaName ?: type.substringAfterLast('.'))
-                    })
-                    put("props", info?.defaultProperties?.deepCopy() ?: JsonObject())
-                    put("position", parentInfo?.childPositionDefaults?.deepCopy() ?: JsonObject())
-                }
+                // Position IS seeded from the parent's defaults — it is layout state the container
+                // requires. Props are NOT: see newComponentNode for why writing schema defaults
+                // breaks the "absent means still at default" convention Perspective relies on.
+                val position = parentInfo?.childPositionDefaults?.deepCopy() ?: JsonObject()
+                objectArg(args, "position")?.let { merge(position, it) }
 
-                objectArg(args, "props")?.let { merge(node.getAsJsonObjectOrNull("props")!!, it) }
-                objectArg(args, "position")?.let { merge(node.getAsJsonObjectOrNull("position")!!, it) }
+                val node = newComponentNode(
+                    type = type,
+                    name = args.optString("name"),
+                    defaultMetaName = info?.defaultMetaName,
+                    props = objectArg(args, "props"),
+                    position = position,
+                )
 
                 addedAt = doc.addComponent(parentPath, node, args.get("index")?.takeIf { !it.isJsonNull }?.asInt)
             }

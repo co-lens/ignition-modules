@@ -13,12 +13,12 @@ import TabItem from '@theme/TabItem';
 
 | Endpoint | Credential | Tools |
 | --- | --- | --- |
-| `POST /data/mcp/mcp` | write | all 18, or 26 with Perspective installed |
-| `POST /data/mcp/mcp-readonly` | read | the 14 read-only ones, or 22 with Perspective |
+| `POST /data/mcp/mcp` | write | all 25, or 35 with Perspective installed |
+| `POST /data/mcp/mcp-readonly` | read | the 17 read-only ones, or 27 with Perspective |
 | `GET /data/mcp/health` | none | status, version, tool counts, usage totals |
 
 The two counts differ because the `perspective_*` tools are only registered when Perspective is
-present. All eight gateway-side Perspective tools are read-only, so they add to both numbers
+present. All ten gateway-side Perspective tools are read-only, so they add to both numbers
 equally.
 
 ### The health endpoint
@@ -36,9 +36,9 @@ curl -s http://<gateway>:8088/data/mcp/health
   "version": "0.2.0",
   "mcpEndpoint": "/data/mcp/mcp",
   "mcpReadOnlyEndpoint": "/data/mcp/mcp-readonly",
-  "tools": 26,
-  "readOnlyTools": 22,
-  "perspectiveTools": 8,
+  "tools": 35,
+  "readOnlyTools": 27,
+  "perspectiveTools": 10,
   "requests": 1284,
   "errors": 3,
   "toolErrors": 2,
@@ -89,6 +89,11 @@ wrapper.java.additional.9=-Dmcp.gateway.allowAnonymousRead=true
 Every read-only tool becomes available with no credential — `run_query` against your database
 connections, `read_project_resource` for project source, `read_tags`, `query_logs`. There is no
 per-client identity, nothing to revoke, and nothing in the logs tying a read to a caller.
+
+`thread_dump` and `thread_hotspots` are worth calling out separately: they return live stack traces
+from inside the gateway JVM, which is a step beyond what the other read tools disclose. Behind a
+token that is fine — it is the same audience that can already read your tags and project source.
+Anonymously, it is not.
 
 It is off by default and logs a WARN under `mcp.Gateway` at every startup when on. Use it on an
 isolated dev gateway; never on anything reachable from a plant network.
@@ -146,7 +151,7 @@ claude mcp add --transport http ignition-designer \
 This is identical on both platform lines — the bridge runs its own server and never touches
 Ignition's authentication, which is why the 8.1 port needed no Designer changes.
 
-The Designer's value over the gateway is that writes are **staged, not committed**: they appear as
+The Designer's value over the gateway is that writes are **staged, not committed** by default: they appear as
 unsaved Designer changes for a human to review and save. Nothing here writes to the gateway on its
 own.
 

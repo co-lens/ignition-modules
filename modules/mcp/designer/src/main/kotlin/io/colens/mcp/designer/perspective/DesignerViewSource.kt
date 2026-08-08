@@ -70,7 +70,8 @@ class DesignerViewSource(private val context: DesignerContext) : ViewSource {
         WriteOutcome(
             created = !existed,
             committed = false,
-            note = "Staged as an unsaved Designer change. Review it in the Designer and save to apply.",
+            note = "Staged as an unsaved Designer change. Review it in the Designer and save to apply, "
+                + "or call save_project where that tool is available.",
         )
     }
 
@@ -83,7 +84,8 @@ class DesignerViewSource(private val context: DesignerContext) : ViewSource {
         WriteOutcome(
             created = false,
             committed = false,
-            note = "Deletion staged as an unsaved Designer change. Save in the Designer to apply it.",
+            note = "Deletion staged as an unsaved Designer change. Save in the Designer to apply it, "
+                + "or call save_project where that tool is available.",
         )
     }
 

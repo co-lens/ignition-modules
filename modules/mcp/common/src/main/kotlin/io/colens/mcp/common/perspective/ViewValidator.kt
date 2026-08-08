@@ -1,33 +1,9 @@
 package io.colens.mcp.common.perspective
 
 import com.inductiveautomation.ignition.common.gson.JsonObject
-import io.colens.mcp.common.jsonArrayOf
-import io.colens.mcp.common.jsonObject
-import io.colens.mcp.common.put
-
-enum class Severity { ERROR, WARNING }
-
-/**
- * One problem found in a view.
- *
- * [fix] matters as much as [message]: these findings are read by a model that is about to try
- * again, so saying what to do instead turns a failed edit into a corrected one.
- */
-data class Finding(
-    val path: String,
-    val code: String,
-    val severity: Severity,
-    val message: String,
-    val fix: String? = null,
-) {
-    fun toJson(): JsonObject = jsonObject {
-        put("path", path)
-        put("code", code)
-        put("severity", severity.name.lowercase())
-        put("message", message)
-        put("fix", fix)
-    }
-}
+import io.colens.mcp.common.Finding
+import io.colens.mcp.common.Severity
+import io.colens.mcp.common.findingsJson
 
 /**
  * Static analysis of a Perspective view.
@@ -386,15 +362,7 @@ class ViewValidator(private val catalog: ComponentCatalog = NoComponentCatalog) 
     }
 
     companion object {
-        /** Findings as JSON, plus the counts a caller needs to decide whether to proceed. */
-        fun toJson(findings: List<Finding>): JsonObject {
-            val errors = findings.count { it.severity == Severity.ERROR }
-            return jsonObject {
-                put("valid", errors == 0)
-                put("errorCount", errors)
-                put("warningCount", findings.size - errors)
-                put("findings", jsonArrayOf(findings.map { it.toJson() }))
-            }
-        }
+        /** Kept as an alias so existing callers read naturally; the shape lives in `:common`. */
+        fun toJson(findings: List<Finding>): JsonObject = findingsJson(findings)
     }
 }

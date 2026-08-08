@@ -19,6 +19,7 @@ import io.colens.mcp.gateway.status.McpCounters
 import io.colens.mcp.gateway.status.StatusEntity
 import io.colens.mcp.gateway.status.StatusSnapshot
 import io.colens.mcp.gateway.tools.DataTools
+import io.colens.mcp.gateway.tools.PerfTools
 import io.colens.mcp.gateway.tools.PerspectiveTools
 import io.colens.mcp.gateway.tools.ProjectTools
 import io.colens.mcp.gateway.tools.SystemTools
@@ -77,6 +78,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
             .addAll(ProjectTools(context).tools())
             .addAll(DataTools(context).tools())
             .addAll(SystemTools(context).tools())
+            .addAll(PerfTools(context).tools())
             .addAll(perspective)
 
         val version = moduleVersion()
@@ -181,8 +183,9 @@ class GatewayHook : AbstractGatewayModuleHook() {
             logger.warn(
                 "mcp.gateway.allowAnonymousRead is set: {}/mcp-readonly will answer requests that " +
                     "carry no API token. Every read-only tool — including run_query, " +
-                    "read_project_resource and read_tags — is then available to anyone who can " +
-                    "reach this gateway's web port. Intended for isolated dev gateways only.",
+                    "read_project_resource, read_tags, and thread_dump and thread_hotspots, which " +
+                    "return stack traces from inside this JVM — is then available to anyone who " +
+                    "can reach this gateway's web port. Intended for isolated dev gateways only.",
                 "/data/${Constants.SHORT_MODULE_ID}",
             )
             ApiTokenManager.TOKEN_ACCESS

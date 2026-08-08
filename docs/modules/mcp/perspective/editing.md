@@ -20,7 +20,7 @@ Every edit tool does the same three things:
 2. **Apply** exactly one change.
 3. **Validate**, and refuse to stage anything that would leave the view broken.
 
-Nothing is committed. Every successful edit appears as an **unsaved Designer change** for a human
+Nothing is committed by these tools. Every successful edit appears as an **unsaved Designer change** for a human
 to review and save — check what's pending with
 [`list_pending_changes`](../tools/designer.md#list_pending_changes).
 
