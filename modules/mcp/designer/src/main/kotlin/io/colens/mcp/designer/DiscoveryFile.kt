@@ -6,6 +6,7 @@ import io.colens.mcp.common.put
 import org.slf4j.LoggerFactory
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.net.InetAddress
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.charset.StandardCharsets
@@ -22,8 +23,8 @@ import java.time.Instant
  *
  * Two files per Designer process, both owner-only:
  *
- *  - `designer-<pid>.json` — port, secret, project, gateway. Written atomically so a reader
- *    never sees a half-written file.
+ *  - `designer-<pid>.json` — port, secret, project, gateway, and where the endpoint is actually
+ *    reachable from. Written atomically so a reader never sees a half-written file.
  *  - `designer-<pid>.lock` — held under an exclusive [FileLock] for the Designer's lifetime.
  *
  * The split matters: an exclusive lock on the data file itself would block readers on some
@@ -73,12 +74,19 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
         }
     }
 
-    fun write(port: Int, host: String, project: String?, gatewayAddress: String?) {
+    fun write(port: Int, host: String, loopbackOnly: Boolean, project: String?, gatewayAddress: String?) {
         val json = jsonObject {
             put("pid", pid)
             put("port", port)
             put("host", host)
             put("url", "http://$host:$port/mcp")
+            // `host` alone doesn't say whether a client elsewhere can reach this. These two do:
+            // a reader that finds loopbackOnly true and a hostname that isn't its own can report
+            // "that Designer is bound to loopback on <machine>" instead of a bare ECONNREFUSED,
+            // which is indistinguishable from a dead port. The default bind is loopback, so this
+            // is the common case rather than the exotic one.
+            put("loopbackOnly", loopbackOnly)
+            put("hostname", localHostname())
             put("secret", secret)
             put("project", project)
             put("gateway", gatewayAddress)
@@ -153,6 +161,14 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
             logger.warn("Could not restrict permissions on {}", target, e)
         }
     }
+
+    /**
+     * Null rather than an exception: `getLocalHost` throws on a host whose hostname doesn't
+     * resolve, which is common enough in containers, and a missing field is not worth failing a
+     * Designer startup over.
+     */
+    private fun localHostname(): String? =
+        runCatching { InetAddress.getLocalHost().hostName }.getOrNull()
 
     private fun generateSecret(): String {
         val bytes = ByteArray(24)

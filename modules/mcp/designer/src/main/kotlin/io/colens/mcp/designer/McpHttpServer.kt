@@ -35,6 +35,14 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         private set
 
     /**
+     * True when the endpoint is reachable only from this machine. Published in the discovery file
+     * because the failure it causes — a client elsewhere getting `ECONNREFUSED` — is otherwise
+     * indistinguishable from a dead port, a wrong port, or a Designer that never started.
+     */
+    var loopbackOnly: Boolean = true
+        private set
+
+    /**
      * Starts the endpoint. Loopback on an OS-assigned port by default; both are overridable so a
      * Designer running on another machine (a VM, a jump box) can still be reached:
      *
@@ -67,8 +75,9 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         http.start()
         server = http
         boundHost = requestedHost ?: "127.0.0.1"
+        loopbackOnly = requestedHost == null || isLoopback(requestedHost)
 
-        if (requestedHost != null && !isLoopback(requestedHost)) {
+        if (!loopbackOnly) {
             logger.warn(
                 "Designer MCP endpoint is bound to {}:{} — reachable beyond this machine. The " +
                     "bearer secret in the discovery file is the only thing protecting it; restrict " +

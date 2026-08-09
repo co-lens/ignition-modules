@@ -100,7 +100,7 @@ class DesignerHook : AbstractDesignerModuleHook() {
         }
 
         httpServer = server
-        discoveryFile.write(port, server.boundHost, context.projectName, gatewayAddress())
+        discoveryFile.write(port, server.boundHost, server.loopbackOnly, context.projectName, gatewayAddress())
 
         logger.info(
             "Ignition MCP Designer endpoint ready: {} tools on http://{}:{}/mcp",
