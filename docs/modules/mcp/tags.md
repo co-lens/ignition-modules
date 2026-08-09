@@ -67,6 +67,14 @@ Overwrite      ->  { name: M1, dataType: Int8 }        // history and tag group 
 `Abort` refuses to touch anything that already exists, which is the safe first pass against a
 provider you don't know. `Rename` and `Ignore` are also accepted.
 
+All three behaviours above are verified on a live 8.3.8 rather than inferred: under the default a
+tag re-sent with only `name` and a changed `dataType` kept its `historyEnabled`, `tagGroup` and
+`documentation`; under `Overwrite` the same call reduced it to exactly what was sent.
+
+**A refusal is per tag, and the call still succeeds.** `Abort` hitting an existing tag comes back
+as a bad quality on that entry, not as an error — so check `written` against `attempted`, or read
+`ok` on each entry of `results`. The refused tag is left exactly as it was.
+
 ## Why the tools validate before writing {#validation}
 
 `configure_tags` checks the configuration and **refuses the whole call** if anything is wrong,
@@ -119,6 +127,30 @@ Takes a whole Designer-style tag export as a JSON string and applies it under a 
 to move a folder or a type library in one call. For individual tags `configure_tags` is easier to
 get right: it validates each entry and reports per-tag results, where `import_tags` returns only a
 list of quality codes.
+
+**Pass what `system.tag.exportTags` produced, unchanged**, and don't reshape it into
+`configure_tags`' `tags` array — the two tools take deliberately different shapes. The export's own
+shape is conditional, which is the reason the rule is "pass it through" rather than anything more
+specific:
+
+```
+exportTags(["[default]Pump"])                    ->  { "name": "Pump", ... }        bare object
+exportTags(["[default]Pump", "[default]Valve"])  ->  { "tags": [ {...}, {...} ] }   wrapped
+```
+
+`import_tags` accepts both. Verified round trip on 8.3.8: export a UDT, `delete_tags` it,
+`import_tags` the same bytes back, and the persisted file is byte-identical to the original.
+
+**Check `imported` against `total`, not `findings`.** A malformed payload fails inside Ignition's
+parser rather than in validation, so it surfaces as a quality code and leaves `findings` empty —
+giving a response that looks clean apart from `imported: 0`. Feeding it XML, for instance:
+
+```json
+{"imported": 0, "total": 1,
+ "qualities": ["Error_Exception(\"Error importing tags: ... Not a JSON Object: \"<Tags><Tag\"\")"]}
+```
+
+Nothing is partially written when that happens.
 
 Note that a provider stores all of its UDT definitions in a single file, so importing one type
 rewrites that file. Anything comparing exported bytes needs to author types in isolation.

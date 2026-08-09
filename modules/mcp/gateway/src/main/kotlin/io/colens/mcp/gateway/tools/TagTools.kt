@@ -242,7 +242,11 @@ class TagTools(private val context: GatewayContext) {
             "The configuration is validated first and the whole call is refused if anything is " +
             "wrong, because Ignition's own parser accepts several broken inputs silently — most " +
             "notably a UDT parameter given a value but no dataType, which it discards while " +
-            "reporting success.",
+            "reporting success.\n\n" +
+            "Validation is not the only way a tag can fail. The provider can still refuse an " +
+            "individual one — an Abort collision being the ordinary case — so compare 'written' " +
+            "against 'attempted', or read 'ok' per entry in 'results'. A refusal leaves that " +
+            "tag exactly as it was.",
         inputSchema = schema {
             string(
                 "parentPath",
@@ -306,7 +310,12 @@ class TagTools(private val context: GatewayContext) {
                     put("parentPath", parentPath.toString())
                     put("provider", parentPath.source)
                     put("collisionPolicy", policy.name)
-                    put("written", tagConfigs.size)
+                    // Actually written, not attempted. These differ whenever the provider refuses
+                    // an individual tag — an Abort collision being the ordinary case — and a
+                    // caller asserting written == tags.size would otherwise read a total refusal
+                    // as a complete success.
+                    put("written", qualities.count { it.isGood })
+                    put("attempted", tagConfigs.size)
                     put("results", jsonArrayOf(tagConfigs.mapIndexed { i, config ->
                         jsonObject {
                             put("path", config.path?.toString())
@@ -403,17 +412,29 @@ class TagTools(private val context: GatewayContext) {
     private fun importTags() = Tool(
         name = "import_tags",
         title = "Import a tag export",
-        description = "Applies a whole Designer-style tag export in one call — the JSON a tag " +
-            "export produces, with its top-level 'tags' array. Use this to move a folder or a " +
-            "type library; for individual tags configure_tags is easier to get right, since it " +
-            "validates each one and reports per-tag results.",
+        description = "Applies a whole Designer-style tag export in one call. Use it to move a " +
+            "folder or a type library; for individual tags configure_tags is easier to get " +
+            "right, since it validates each one and reports per-tag results.\n\n" +
+            "Pass exactly what system.tag.exportTags produced, unchanged, and do NOT reshape it into " +
+            "configure_tags' 'tags' array — the two tools take deliberately different shapes. " +
+            "Note the export shape depends on how many paths were exported: one path yields a " +
+            "bare object, several yield an object wrapping a 'tags' array. This tool accepts " +
+            "both, which is exactly why passing it through untouched is the rule.\n\n" +
+            "Check 'imported' against 'total' rather than 'findings'. A malformed payload fails " +
+            "in Ignition's parser rather than in validation, so it surfaces in 'qualities' and " +
+            "leaves 'findings' empty — a response that looks clean apart from imported being 0. " +
+            "Nothing is partially written when that happens.",
         inputSchema = schema {
             string(
                 "parentPath",
                 "Folder to import into, e.g. '[default]Area1' or '[default]' for the root.",
                 required = true,
             )
-            string("json", "The tag export JSON, as a string.", required = true)
+            string(
+                "json",
+                "The tag export JSON, as a string, exactly as system.tag.exportTags emitted it.",
+                required = true,
+            )
             enumString(
                 "collisionPolicy",
                 "What to do where the export overlaps existing tags.",
@@ -560,7 +581,11 @@ class TagTools(private val context: GatewayContext) {
 
         val COLLISION_POLICIES = CollisionPolicy.entries.map { it.name }
 
-        /** Matches `system.tag.exportTags`' format argument; the other value there is "xml". */
+        /**
+         * `importTagsAsync`'s format argument. Matches `system.tag.exportTags`' own — the other
+         * value there is "xml" — and confirmed end to end on 8.3.8: export a UDT, delete it,
+         * import the bytes back, and the persisted file is byte-identical to the original.
+         */
         const val IMPORT_FORMAT = "json"
     }
 }

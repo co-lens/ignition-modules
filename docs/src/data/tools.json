@@ -171,7 +171,7 @@
             {
               "name": "configure_tags",
               "title": "Create or edit tag configuration",
-              "description": "Creates or edits tags, UDT definitions and UDT instances. Each entry in \u0027tags\u0027 is a configuration object in the same shape get_tag_config returns, carrying its own \u0027name\u0027; \u0027parentPath\u0027 is the folder they go into. Write UDT definitions to the provider\u0027s _types_ folder, e.g. parentPath \u0027[default]_types_\u0027.\n\nCollisions default to MergeOverwrite: properties you send are applied and properties you leave out keep their current values, so editing one setting does not require sending the whole tag. Use Overwrite only when you mean to REPLACE the configuration — it drops every property you did not send, including alarms and history settings. Use Abort to refuse to touch anything that already exists.\n\nThe configuration is validated first and the whole call is refused if anything is wrong, because Ignition\u0027s own parser accepts several broken inputs silently — most notably a UDT parameter given a value but no dataType, which it discards while reporting success.",
+              "description": "Creates or edits tags, UDT definitions and UDT instances. Each entry in \u0027tags\u0027 is a configuration object in the same shape get_tag_config returns, carrying its own \u0027name\u0027; \u0027parentPath\u0027 is the folder they go into. Write UDT definitions to the provider\u0027s _types_ folder, e.g. parentPath \u0027[default]_types_\u0027.\n\nCollisions default to MergeOverwrite: properties you send are applied and properties you leave out keep their current values, so editing one setting does not require sending the whole tag. Use Overwrite only when you mean to REPLACE the configuration — it drops every property you did not send, including alarms and history settings. Use Abort to refuse to touch anything that already exists.\n\nThe configuration is validated first and the whole call is refused if anything is wrong, because Ignition\u0027s own parser accepts several broken inputs silently — most notably a UDT parameter given a value but no dataType, which it discards while reporting success.\n\nValidation is not the only way a tag can fail. The provider can still refuse an individual one — an Abort collision being the ordinary case — so compare \u0027written\u0027 against \u0027attempted\u0027, or read \u0027ok\u0027 per entry in \u0027results\u0027. A refusal leaves that tag exactly as it was.",
               "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -268,7 +268,7 @@
             {
               "name": "import_tags",
               "title": "Import a tag export",
-              "description": "Applies a whole Designer-style tag export in one call — the JSON a tag export produces, with its top-level \u0027tags\u0027 array. Use this to move a folder or a type library; for individual tags configure_tags is easier to get right, since it validates each one and reports per-tag results.",
+              "description": "Applies a whole Designer-style tag export in one call. Use it to move a folder or a type library; for individual tags configure_tags is easier to get right, since it validates each one and reports per-tag results.\n\nPass exactly what system.tag.exportTags produced, unchanged, and do NOT reshape it into configure_tags\u0027 \u0027tags\u0027 array — the two tools take deliberately different shapes. Note the export shape depends on how many paths were exported: one path yields a bare object, several yield an object wrapping a \u0027tags\u0027 array. This tool accepts both, which is exactly why passing it through untouched is the rule.\n\nCheck \u0027imported\u0027 against \u0027total\u0027 rather than \u0027findings\u0027. A malformed payload fails in Ignition\u0027s parser rather than in validation, so it surfaces in \u0027qualities\u0027 and leaves \u0027findings\u0027 empty — a response that looks clean apart from imported being 0. Nothing is partially written when that happens.",
               "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -278,7 +278,7 @@
                   },
                   "json": {
                     "type": "string",
-                    "description": "The tag export JSON, as a string."
+                    "description": "The tag export JSON, as a string, exactly as system.tag.exportTags emitted it."
                   },
                   "collisionPolicy": {
                     "type": "string",
