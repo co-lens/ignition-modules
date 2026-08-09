@@ -50,12 +50,18 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "workflow_dispatch" ]; then
-            tag=""
+            rehearsal=true
             version="$INPUT_VERSION"
+            # A throwaway tag, created and deleted by the rehearsal itself. It carries the run id
+            # so two concurrent rehearsals of the same version cannot collide, and the `rehearsal-`
+            # prefix is outside the `mcp-v*` trigger, so creating it cannot re-enter this workflow.
+            tag="rehearsal-mcp-v$version-$RUN_ID"
           else
+            rehearsal=false
             tag="$REF_NAME"
             version="${tag#mcp-v}"
           fi
@@ -73,6 +79,7 @@ jobs:
             echo "tag=$tag"
             echo "version=$version"
             echo "prerelease=$prerelease"
+            echo "rehearsal=$rehearsal"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout
@@ -257,14 +264,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      # This runs on the rehearsal too, against the throwaway tag, and the step below deletes it.
+      #
+      # Gating it on `push` was how the --latest-on-a-prerelease bug survived a green rehearsal:
+      # release creation is the step most likely to be wrong precisely because it was the only one
+      # that never ran outside a real release. It also failed *after* creating the release and
+      # uploading assets — the half-published state the "refuse to overwrite" guard exists to
+      # prevent — so the rehearsal has to be able to reach that state and clean it up.
       - name: Create the GitHub Release
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.v.outputs.tag }}
           VERSION: ${{ steps.v.outputs.version }}
           PRERELEASE: ${{ steps.v.outputs.prerelease }}
+          REHEARSAL: ${{ steps.v.outputs.rehearsal }}
           FINGERPRINT: ${{ steps.stage.outputs.fingerprint }}
+          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           # --latest is set explicitly rather than left to gh: the 8.1 line publishes into this
@@ -279,8 +294,25 @@ jobs:
           latest=true
           if [ "$PRERELEASE" = "true" ]; then latest=false; fi
 
-          args=(--title "Ignition MCP $VERSION" --generate-notes --verify-tag --latest="$latest")
+          # The one place a rehearsal deviates, and it is deliberate: a throwaway release must never
+          # take the `Latest` badge the README links to, even for the seconds before it is deleted.
+          # A prerelease rehearsal therefore runs byte-identical to the real thing — which is the
+          # path that was never exercised and that broke — while a stable one is published with
+          # --latest=false. The --latest=true path runs on every real stable release anyway.
+          if [ "$REHEARSAL" = "true" ] && [ "$latest" = "true" ]; then
+            echo "::notice::Rehearsal: forcing --latest=false so this throwaway release cannot take the Latest badge."
+            latest=false
+          fi
+
+          args=(--title "Ignition MCP $VERSION" --generate-notes --latest="$latest")
           if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          if [ "$REHEARSAL" = "true" ]; then
+            # No tag exists on a rehearsal, so --verify-tag would fail; point gh at this commit
+            # and let it create the tag, which --cleanup-tag then removes.
+            args+=(--target "$SHA")
+          else
+            args+=(--verify-tag)
+          fi
 
           gh release create "$TAG" "${args[@]}" \
             "dist/Ignition-MCP-$VERSION.modl" \
@@ -301,3 +333,28 @@ jobs:
           # --latest repeated deliberately: gh sends make_latest on edit too, so omitting it here
           # reintroduces the 422 above on any prerelease.
           gh release edit "$TAG" --notes-file /tmp/body.md --latest="$latest"
+
+      # `always()` is the point: the failure this rehearsal exists to catch happens *after* the
+      # release and its assets are created, so cleaning up only on success would leave the very
+      # artefact being tested for behind. Never runs on a real release.
+      - name: Delete the rehearsal release
+        if: always() && steps.v.outputs.rehearsal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+            echo "Deleted rehearsal release and tag $TAG."
+          else
+            # gh can create the tag and then fail before the release exists, so the ref may outlive
+            # the release. Deleted through the API because checkout ran with persist-credentials:
+            # false and git has no token here.
+            if gh api -X DELETE "repos/$REPO/git/refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "No rehearsal release for $TAG; deleted the leftover tag."
+            else
+              echo "Nothing to clean up for $TAG."
+            fi
+          fi
