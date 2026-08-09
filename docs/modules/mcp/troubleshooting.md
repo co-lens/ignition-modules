@@ -84,7 +84,7 @@ The gateway log carries an ERROR at startup naming the exact property when no se
 </TabItem>
 </Tabs>
 
-## 403 on `/data/mcp/mcp` while `/mcp-readonly` works
+## 403 on `/data/mcp/mcp` while `/mcp-readonly` works {#write-403}
 
 Working as designed: your credential is valid but doesn't carry write access.
 
@@ -133,6 +133,11 @@ The Designer bridge is a separate endpoint from the gateway's, with its own cred
    per-session and change every time the Designer restarts.
 3. If your client isn't on the same machine as the Designer, the bridge binds to loopback by
    default. See [Reaching a Designer on another machine](./clients/remote-designer.md).
+
+**On a bare "connection refused"**, don't assume a dead port. A loopback bind produces exactly the
+same error from another machine. The tell is the connect dialog reading `127.0.0.1`, or
+`"loopbackOnly": true` in `~/.ignition/mcp/designer-<pid>.json` on the Designer's own machine — see
+[Connection refused, and how to tell why](./clients/remote-designer.md#connection-refused-and-how-to-tell-why).
 
 ## I edited a file and nothing happened
 

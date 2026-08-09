@@ -16,6 +16,42 @@ remotely — two JVM arguments on the Designer opt out of that:
 
 Both default to the safe behaviour, and the module logs a warning when you widen the bind.
 
+:::warning Set every argument you need in one go — they replace, they don't accumulate
+The launcher's JVM-argument field is a single value. Adding `-Dmcp.designer.allowSave=true` to a
+Designer that already had `-Dmcp.designer.bindAddress=0.0.0.0` **replaces** it unless you type both,
+putting the bridge silently back on loopback:
+
+```
+-Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.allowSave=true
+```
+
+This has cost two sessions time, and the failure it produces is the one below.
+:::
+
+## "Connection refused", and how to tell why
+
+`ECONNREFUSED` from a client on another machine is indistinguishable from a dead port, a wrong port,
+or a Designer that never started. Two things tell them apart:
+
+- **The connect dialog** (**Tools → MCP Connection Info…**) shows the address the bridge actually
+  bound to. If it reads `127.0.0.1` and your client is elsewhere, the bind is the problem — not the
+  port and not the secret.
+- **The discovery file** on the Designer's machine,
+  `~/.ignition/mcp/designer-<pid>.json`, records the same thing in a form a client can act on:
+
+  ```json
+  {
+    "host": "127.0.0.1",
+    "url": "http://127.0.0.1:41337/mcp",
+    "loopbackOnly": true,
+    "hostname": "designer-vm"
+  }
+  ```
+
+  `loopbackOnly: true` with a `hostname` that isn't the caller's own means the endpoint is up and
+  healthy but reachable only from `designer-vm`. A client that reads the file can say so instead of
+  passing a bare connection error along.
+
 :::warning The bearer secret is the only thing protecting it
 Loopback-only is the right default because the secret in the discovery file is the *sole*
 credential. Once the endpoint is reachable from the network, that secret is all that stands between

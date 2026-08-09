@@ -120,8 +120,21 @@ New tokens default to **Require Secure Channel**, which makes them fail with `40
 no matter what else is correct. Use HTTPS, or untick that box for a local gateway.
 :::
 
-For write access the token additionally needs the gateway's **write** permission, which by default
-means the `Administrator` role.
+:::warning Writing needs a second permission — grant it now if you want the write tools
+A default token reaches the read-only endpoint and **only** that. The write endpoint checks the
+gateway's **write** permission, which out of the box means the `Administrator` role, set under
+**Config → Security → Security Levels**. A freshly-commissioned 8.3 ships `writePermissions` as
+`AnyOf[Authenticated/Roles/Administrator]`, and a token carrying only `Authenticated` does not
+satisfy it.
+
+Skipping this produces a symptom pair specific enough to be diagnostic — **200 on
+`/data/mcp/mcp-readonly`, 403 on `/data/mcp/mcp`** — and it reads like a module fault when it is a
+permissions one. See
+[403 on `/data/mcp/mcp` while `/mcp-readonly` works](./troubleshooting.md#write-403).
+
+A write credential exposes `run_script`, which is arbitrary Jython in gateway scope. If you only
+need reads, leave this alone — see [Endpoints and security](./endpoints.md).
+:::
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">

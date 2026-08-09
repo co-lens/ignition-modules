@@ -212,6 +212,31 @@ Two more rules:
 Separate tokens per gateway are still the better default — you get per-gateway revocation, and one
 leaked credential doesn't open all of them.
 
+### Restoring a backed-up token into a fresh gateway
+
+Copying a token *back* — into a gateway that has never issued one — needs the parent directory
+created first:
+
+```bash
+docker exec ignition mkdir -p \
+  /usr/local/bin/ignition/data/config/resources/core/ignition/api-token
+docker cp ./api-token/mcp \
+          ignition:/usr/local/bin/ignition/data/config/resources/core/ignition/api-token/mcp
+```
+
+`api-token/` doesn't exist until the gateway issues its first token, so without the `mkdir -p` the
+`docker cp` has nowhere to land.
+
+:::danger The obvious repair afterwards is unreachable by construction
+A restored token isn't live until the gateway rescans its resource files — and the tool that does
+that, `scan_resource_files`, is on the **write** endpoint, which is exactly the endpoint you have no
+working token for. There is no way round it from the client side.
+
+**Restart the gateway.** That is the only way in.
+:::
+
+<small>Both of these came out of a real restore run by the lens project.</small>
+
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">
 
