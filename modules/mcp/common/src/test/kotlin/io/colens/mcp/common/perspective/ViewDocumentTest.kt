@@ -1,6 +1,8 @@
 package io.colens.mcp.common.perspective
 
+import com.inductiveautomation.ignition.common.gson.JsonElement
 import io.colens.mcp.common.McpArgumentException
+import io.colens.mcp.common.McpJson
 import io.colens.mcp.common.optString
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.StringSpec
@@ -48,6 +50,62 @@ private const val SAMPLE = """
   }
 }
 """
+
+/**
+ * The same shape, but with members in an order no serializer would choose: `children` ahead of
+ * `type`, `events` trailing after it, `meta` last on the nested label, and the view's own keys
+ * reversed. Used by the member-ordering cases below.
+ */
+private const val AWKWARD_ORDER = """
+{
+  "root": {
+    "children": [
+      {
+        "children": [
+          { "meta": { "name": "Nested" }, "props": { "text": "Deep" }, "type": "ia.display.label" }
+        ],
+        "type": "ia.container.coord",
+        "custom": { "gain": 2 },
+        "meta": { "name": "Inner" }
+      },
+      {
+        "props": { "text": "Hello" },
+        "type": "ia.display.label",
+        "meta": { "name": "Title" },
+        "events": {
+          "dom": { "onClick": { "config": { "script": "\tprint 1" }, "type": "script" } }
+        },
+        "position": { "grow": 1 }
+      }
+    ],
+    "props": { "direction": "column" },
+    "type": "ia.container.flex",
+    "meta": { "name": "root" }
+  },
+  "props": { "defaultSize": { "height": 600, "width": 800 } },
+  "params": { "deviceId": "" },
+  "custom": { "viewLevel": 1 }
+}
+"""
+
+/**
+ * Every object in [element], addressed by its position in the tree, mapped to its member order.
+ * Comparing two of these says "nothing moved" far more precisely than comparing serialized text,
+ * which also changes when a value does.
+ */
+private fun keyOrders(element: JsonElement, path: String = "$"): Map<String, List<String>> {
+    val out = LinkedHashMap<String, List<String>>()
+    when {
+        element.isJsonObject -> {
+            val obj = element.asJsonObject
+            out[path] = obj.keySet().toList()
+            obj.entrySet().forEach { (key, value) -> out += keyOrders(value, "$path.$key") }
+        }
+        element.isJsonArray ->
+            element.asJsonArray.forEachIndexed { i, value -> out += keyOrders(value, "$path[$i]") }
+    }
+    return out
+}
 
 class ViewDocumentTest : StringSpec({
 
@@ -100,6 +158,53 @@ class ViewDocumentTest : StringSpec({
         val d = doc()
         shouldThrow<McpArgumentException> { d.addComponent("root/Missing", com.inductiveautomation.ignition.common.gson.JsonObject()) }
         d.componentCount() shouldBe 4
+    }
+
+    // -- member ordering ----------------------------------------------------
+    //
+    // These are a contract, not an incidental property. ViewDocument mutates the parsed tree in
+    // place (a Gson JsonObject, whose backing map iterates in insertion order), so a view read,
+    // edited and written back keeps every untouched member exactly where the Designer put it.
+    // The lens project's view-fixture corpus (co-lens/lens, branch `mcp-corpus`) is pinned
+    // byte-exact against our output and depends on that. A refactor of ViewDocument toward typed
+    // fields would reorder every MCP-touched view, break that corpus, and — without these cases —
+    // pass the rest of this suite. The cases above cover structure; none of them covers order.
+
+    "a round trip preserves member order exactly" {
+        val expected = McpJson.toPrettyString(McpJson.parse(AWKWARD_ORDER))
+        ViewDocument.parse(AWKWARD_ORDER).toJsonString() shouldBe expected
+    }
+
+    "editing one component leaves every other member's position untouched" {
+        val before = keyOrders(McpJson.parse(AWKWARD_ORDER))
+        val baseline = McpJson.toPrettyString(McpJson.parse(AWKWARD_ORDER))
+
+        val d = ViewDocument.parse(AWKWARD_ORDER)
+        d.props("root/Inner/Nested").addProperty("text", "Changed")
+
+        keyOrders(d.json()) shouldBe before
+
+        // Belt and braces: the serialized form differs on exactly the one line that changed.
+        val after = d.toJsonString()
+        after.lines().size shouldBe baseline.lines().size
+        val changed = baseline.lines().zip(after.lines()).filter { (a, b) -> a != b }
+        changed.map { it.second.trim() } shouldContainExactly listOf("\"text\": \"Changed\"")
+    }
+
+    "adding a component appends without disturbing existing members" {
+        val before = keyOrders(McpJson.parse(AWKWARD_ORDER))
+
+        val d = ViewDocument.parse(AWKWARD_ORDER)
+        val node = com.inductiveautomation.ignition.common.gson.JsonObject().apply {
+            addProperty("type", "ia.display.label")
+            metaObject().addProperty("name", "Added")
+        }
+        d.addComponent("root/Inner", node) shouldBe "root/Inner/Added"
+
+        // Every path that existed before still holds the same members in the same order; the only
+        // new entries are the appended node's own.
+        val after = keyOrders(d.json())
+        after.filterKeys { it in before.keys } shouldBe before
     }
 
     // -- structure ----------------------------------------------------------
