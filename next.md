@@ -9,8 +9,11 @@ during the rc period — see the four completed sections below for what was actu
 validation turned up three defects; all were fixed before the stable tag.
 
 **Nothing is outstanding that blocks anything.** What follows is (1) the record of what was
-verified and how, which is worth keeping because several results were surprising, and (2) five
-things nobody has decided on. None are defects.
+verified and how, which is worth keeping because several results were surprising, and (2) the four
+undecided items, all now built. None were defects.
+
+**One thing is still unverified**: the release rehearsal change has never run against GitHub — see
+[Not yet verified](#not-yet-verified). Everything else has been run.
 
 ---
 
@@ -158,16 +161,13 @@ from 91 KB to 58 KB, purely from the defaults going away.
 
 ---
 
-## Decisions waiting on you
+## ~~Decisions waiting on you~~ — ALL FOUR DONE (uncommitted)
 
-None of these is a defect and none blocks anything. Ordered by what I'd do first. The lens session
-independently ranked the same list and agreed on the order, so treat it as two opinions rather than
-one.
+Checking the list against the tree first found that it was **four items, not five**:
+`troubleshooting.md`'s 403 entry already existed, and the discovery file already recorded the bound
+address. What follows is the original write-up with what was actually built noted against each.
 
-**If you only do one, do the `ViewDocument` regression test** — it is the only item whose cost, if
-it goes wrong, lands silently in someone else's repository.
-
-### The release rehearsal has a hole
+### ~~The release rehearsal has a hole~~ — DONE, the second option
 
 `workflow_dispatch` skips the release-creation step entirely, so it **passed while the real run
 failed**. It cannot catch any bug in creating, annotating or flagging a release — which is the step
@@ -185,9 +185,26 @@ Two options:
 - **Cheap and real** — have the rehearsal create a *draft* release and delete it. Exercises the
   actual API including `make_latest`.
 
-I'd take the second. Not done — you haven't ruled on it.
+**Built, with one correction to the idea.** A *draft* can't work: GitHub rejects `make_latest=true`
+on a draft for the same reason it rejects it on a prerelease, so a draft rehearsal of a stable
+version would 422 on every run. The rehearsal now creates a **real** release on a throwaway
+`rehearsal-mcp-v<version>-<runid>` tag and deletes it with `--cleanup-tag`.
 
-### Have the discovery file record the bound address
+The one deliberate deviation, commented in the workflow: a stable-version rehearsal is forced to
+`--latest=false` with a `::notice::`, because a throwaway release must not take the `Latest` badge
+even for the seconds before deletion. That costs nothing — `--latest=true` runs on every real stable
+release anyway, whereas the **prerelease path is the one that had never run**, and it now runs
+byte-identical to the real thing apart from `--target` standing in for `--verify-tag`.
+
+Cleanup is `if: always()`. That is the point rather than a detail: the failure this exists to catch
+happens *after* the release and assets are created, so cleaning up only on success would leave
+behind exactly the half-published artefact being tested for.
+
+Verified locally by stubbing `gh` and running all four
+(rehearsal × prerelease) combinations, plus the version resolver against five inputs. The real
+`workflow_dispatch` run has not happened yet — see the verification note at the end.
+
+### ~~Have the discovery file record the bound address~~ — DONE, and it was half-built already
 
 Second data point today. When the Designer bridge is on loopback but the client is elsewhere, the
 failure is `ECONNREFUSED` — indistinguishable from a dead port, a wrong port, or a Designer that
@@ -199,11 +216,23 @@ client could fail with *"this Designer is bound to loopback on the machine runni
 this one"* instead. That is an error that teaches. Small change, and it is now the cheapest fix
 for a problem that has cost two sessions time.
 
+**It already recorded it.** `DiscoveryFile.write()` has published `host` and `url` from
+`server.boundHost` all along, so the premise above was wrong — the gap was that neither field says
+*whether a client elsewhere can use them*. Two fields now do: `loopbackOnly` (from a new
+`McpHttpServer.loopbackOnly`) and `hostname`, the latter null-tolerant because `getLocalHost()`
+throws on hosts whose name doesn't resolve, which is common in containers. A reader finding
+`loopbackOnly: true` and a `hostname` that isn't its own can name the machine in the error.
+
+Documented in `clients/remote-designer.md` under "Connection refused, and how to tell why", with a
+pointer from `troubleshooting.md`. The JVM-argument trap from §3 went in alongside it — the launcher
+field is a single value, so adding `allowSave` *replaces* `bindAddress` rather than appending to it,
+and the failure that produces is the very one the section diagnoses.
+
 Related but larger: the gateway→Designer relay idea from earlier is still unbuilt and still the
 better general answer, since the gateway is the one endpoint reachable in every VM/NAT/WSL case at
 once. It also still needs its own credential rather than reusing the write token.
 
-### Add the `ViewDocument` ordering regression test
+### ~~Add the `ViewDocument` ordering regression test~~ — DONE, and it bites
 
 The only outstanding item where **being wrong lands silently on someone else's repo**.
 
@@ -219,25 +248,65 @@ downstream corpus, and pass our entire suite.
 Small: parse a view with awkward key order (`children` before `type`, `scripts` after it), mutate
 one node, assert byte-identical apart from that node. Say the word and it's minutes.
 
-### Three documentation fixes, identified but not made
+**Three cases added** against an `AWKWARD_ORDER` fixture — round trip, edit-one-node, and
+`addComponent`, the last because `perspective_add_component` is the operation the pinned view
+corpus actually goes through. `keyOrders()` addresses every object in the tree by position and maps
+it to its member order, which says "nothing moved" more precisely than comparing serialized text
+(that also changes when a value does).
 
-**#1 below is the one to do before stable.** It has now cost two sessions time independently, and
+**Confirmed the tests bite**, which matters more than that they pass: making `ViewDocument` rebuild
+its tree with sorted keys failed all three — and left the other 140 tests in the module green. That
+is the blind spot, demonstrated rather than asserted. Mutation reverted.
+
+### ~~Three documentation fixes, identified but not made~~ — DONE, but there were only two
+
+**#2 was already done** — `troubleshooting.md` has carried the 403/`mcp-readonly` section for some
+time. This list was stale, not the docs.
+
+**#1 was the one to do before stable.** It has now cost two sessions time independently, and
 the symptom pair — `/mcp-readonly` 200, `/mcp` 403 — is diagnostic, in that nothing else in the
-stack produces it. Worth a troubleshooting entry keyed on exactly that.
-
-All three are small:
+stack produces it.
 
 1. **`quickstart.md`** — promote the write-permission line from a parenthetical to a step. "Reads
    fine, writes 403" reads like a module fault when it's a permissions one, and we've now each lost
    time to it.
-2. **`troubleshooting.md`** — add the symptom explicitly: 200 on `/mcp-readonly`, 403 on `/mcp`,
-   token has no `Administrator`.
+   → Now a `:::warning` beside the Require-Secure-Channel one, carrying the diagnostic symptom pair
+   inline and linking to `troubleshooting.md#write-403` (a new explicit anchor id, so the link
+   can't rot on a heading reword).
+2. ~~**`troubleshooting.md`**~~ — already present at "403 on `/data/mcp/mcp` while `/mcp-readonly`
+   works". No change beyond giving it the stable anchor id above.
 3. **`docker.md`** — two additions from the lens session's real run, worth crediting to them:
    - restoring a backed-up token to a *fresh* gateway needs `mkdir -p` first, because
      `config/resources/core/ignition/api-token/` doesn't exist until the first token is issued, so
      `docker cp` has nowhere to land;
    - the obvious repair afterwards, `scan_resource_files`, is unreachable **by construction** —
      it's on the write endpoint you have no working token for. A restart is the only way in.
+   → Both, as a new "Restoring a backed-up token into a fresh gateway" subsection placed *after*
+   the existing mount guidance rather than inside it, so the "boot once before adding this mount"
+   warning stays attached to the block it warns about.
+
+---
+
+## Not yet verified
+
+Everything above passes `./gradlew build` and a clean `docusaurus build` (both new doc anchors
+resolve in the built HTML). One thing cannot be checked locally:
+
+**The release rehearsal has not been run against GitHub.** Push the branch, then:
+
+```bash
+gh workflow run "Release module" --ref <branch> -f version=0.3.1-rc1 && gh run watch
+```
+
+Confirm the release-creation step ran, then that nothing survived it:
+
+```bash
+gh release list | grep rehearsal          # expect nothing
+git ls-remote --tags origin | grep rehearsal   # expect nothing
+```
+
+Run it a second time with a stable version (`0.3.1`) to see the `::notice::` downgrade fire, and
+check the `Latest` badge still points at `mcp-v0.3.0` throughout.
 
 ---
 
