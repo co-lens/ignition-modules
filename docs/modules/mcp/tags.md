@@ -112,6 +112,19 @@ across a round trip. Two known normalisations:
 
 Neither changes meaning, but both will show up in a naive diff. Compare semantically, not textually.
 
+:::note These bytes are pinned outside this repository
+Three UDT fixtures at `test/corpus/tags/` in [co-lens/lens](https://github.com/co-lens/lens),
+branch `mcp-corpus`, were produced by `system.tag.configure` on one module version and reproduced
+**byte-for-byte** by `configure_tags` on another. They are stable and won't be regenerated without
+notice.
+
+That makes them a regression target for **Ignition's tag writer**, not just for these tools: if a
+future platform version changes how it sorts keys or canonicalises type names, it shows up there
+immediately. It also means a change to the tag configuration path here breaks a build in a
+repository nobody watching this one will think to check. Worth knowing before altering how
+`configure_tags` hands configuration to the platform.
+:::
+
 ## Deleting and renaming
 
 `delete_tags` removes tags, folders and UDT definitions along with everything beneath them.
