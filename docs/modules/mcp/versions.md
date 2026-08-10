@@ -28,18 +28,28 @@ further is built. If you have a choice, use 8.3.
 | Release tag | `mcp-v*` | `mcp81-v*` |
 | Perspective | optional — the module loads without it | **required** — the module will not install without it |
 | Config file scan | `scan_resource_files` covers `target: config` | config lives in `config.idb`, not on disk, so that target reports itself unavailable |
-| [Performance tools](./performance.md) | all five | absent — the 8.1 branch is frozen to security and wrong-data fixes, and these are neither |
-| [`save_project`](./designer-save.md) | opt-in via `-Dmcp.designer.allowSave` | absent, same freeze |
+| Minimum platform version | 8.3.7 (module 0.3.2+) | 8.1.43 (module 0.2.1+) |
+| Tool count | 56 | 46 — the ten below are absent |
+| Tag configuration | `configure_tags`, `delete_tags`, `rename_tag`, `import_tags` | absent — unported |
+| [Performance tools](./performance.md) | all five | absent — unported |
+| [`save_project`](./designer-save.md) | opt-in via `-Dmcp.designer.allowSave` | absent — unported |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
 
-Everything else — the [tool reference](./tools/index.md), [Perspective](./perspective/index.md),
-the Designer bridge, the trial tools — is the same on both, and where a platform can't do something
-the tool still exists with the same arguments rather than disappearing: `scan_resource_files` is on
-both lines, and only its `config` target is unavailable on 8.1.
+For the 46 tools present on both lines, the names, arguments and behaviour are identical, and
+[Perspective](./perspective/index.md), the Designer bridge and the trial tools work the same way.
+Where a platform genuinely can't do something the tool still exists with the same arguments rather
+than disappearing: `scan_resource_files` is on both lines, and only its `config` target is
+unavailable on 8.1. The [tool reference](./tools/index.md) documents the 8.3 line, so treat the ten
+tools listed above as the delta when reading it against an 8.1 gateway.
 
-The performance tools are the one real divergence. They are new capability, not a fix, so they land
-on 8.3 only — which is the 8.1 branch's freeze working as intended rather than a platform
-limitation. Nothing in them needs an 8.3 API.
+**Those ten are absent because nobody has ported them, not because 8.1 can't run them.** Every SDK
+API they need exists in 8.1.43 with the same signatures — verified against the 8.1.43 jars, not
+inferred. The 8.1 branch's charter freezes it to security and wrong-data fixes *but explicitly
+excepts changes that keep the tool surface identical to the 8.3 line*, so porting them is in scope
+whenever someone picks it up.
+
+`scan_resource_files`'s `config` target is the only difference in this document forced by the
+platform itself.
 
 ## Why 8.1 authentication is weaker
 
