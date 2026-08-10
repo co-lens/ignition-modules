@@ -4,7 +4,7 @@
 branch under the tool-surface-parity exception in its README, and it is the only outstanding
 tool-surface work — see "Not in scope" for the one gap that stays.
 
-**Progress: waves 1–3 are done — 54 tools on 8.1, two to go.**
+**Progress: waves 1–4 are done — 55 tools on 8.1. Only `save_project` (wave 5) is left.**
 
 - **Wave 1** (`b5ad0d1`, released in **0.2.2**) — `jvm_health`, `thread_dump`, `thread_hotspots`.
   Byte-identical copies of main's files; registration was one import and one `addAll`.
@@ -12,8 +12,15 @@ tool-surface work — see "Not in scope" for the one gap that stays.
   `import_tags`. `TagTools.kt` was taken from main wholesale: this branch's copy turned out to be a
   strict subset apart from four lines, and those four were main's improvements. 0.2.3 also carries
   the `write_tags` fix described below.
-- **Wave 3** (`411f706`, unreleased) — `perspective_session_performance`. Both files strictly
-  additive between the branches; not one existing line differed.
+- **Wave 3** (`411f706`, released in **0.2.4**) — `perspective_session_performance`. Both files
+  strictly additive between the branches; not one existing line differed.
+- **Wave 4** (`07d34cd`, unreleased) — `perspective_analyze_performance`, plus the `Finding`
+  consolidation. The wave this plan called the riskiest turned out to be routine: `ViewValidator`
+  and `PerspectiveComponentCatalog` were taken from main unchanged, `PerspectiveReadTools` was
+  strictly additive, and the only bespoke edit was repointing one import in `PerspectiveEditTools`.
+  133 tests green, including the pre-existing `ViewValidatorTest` and `ViewDocumentTest` that guard
+  the 19 Perspective tools. Doing the consolidation as its own step with a build between the two
+  halves is what kept it legible.
 
 Every wave so far has been cheaper than this plan assumed, for the same reason each time: where
 `main` and `8.1/main` share a file, the 8.1 copy has generally been a strict subset. **Diff the
@@ -37,15 +44,9 @@ Corrections that came out of doing the work:
   `DEFAULT_JSON_KEY`. The large remaining diffs — `GatewayHook`, `DesignerTools`, `McpServer` — are
   the auth and resource-model splits, and are meant to differ.
 
-**Two warts wave 4 must clear first**, both created or left by earlier waves and both in files the
-19 existing Perspective tools share:
-
-1. `Finding` and `Severity` exist **twice** on this branch — `io.colens.mcp.common.Finding` from
-   wave 2, and the original pair still declared inside `ViewValidator.kt` in the `.perspective`
-   package. Different packages, so it compiles; `main` has only the former. Collapse them onto
-   `common.Finding` as the first step of wave 4, not as part of the analyzer port.
-2. `PerspectiveComponentCatalog` still carries `initialPropsOf`, which `main` deleted as dead and
-   misleading. Never called here either, so it is cleanup rather than a fix.
+~~Two warts wave 4 must clear first~~ — **both cleared in `07d34cd`.** `Finding`/`Severity` are now
+declared once, in `io.colens.mcp.common`, and `initialPropsOf` is gone. The branch's Perspective
+files match main's.
 
 Baselines when this was written: `main` at `366dd8f` (module 0.3.2, floor 8.3.7), `8.1/main` at
 `7c1bcd0` (module 0.2.1, floor 8.1.43).
