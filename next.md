@@ -1,11 +1,31 @@
 # Porting the ten missing tools to the 8.1 line
 
-The 8.1 line has 46 tools; `main` has 56. This is the plan for closing that gap. It is in scope for
-the 8.1 branch under the tool-surface-parity exception in that branch's README, and it is the only
-outstanding tool-surface work — see "Not in scope" for the one gap that stays.
+`main` has 56 tools. This is the plan for bringing the 8.1 line up to them. It is in scope for that
+branch under the tool-surface-parity exception in its README, and it is the only outstanding
+tool-surface work — see "Not in scope" for the one gap that stays.
 
-Baselines: `main` at `366dd8f` (module 0.3.2, floor 8.3.7), `8.1/main` at `7c1bcd0`
-(module 0.2.1, floor 8.1.43).
+**Progress: waves 1 and 2 are done — 53 tools on 8.1, three to go.**
+
+- **Wave 1** (`b5ad0d1`, released in **0.2.2**) — `jvm_health`, `thread_dump`, `thread_hotspots`.
+  Byte-identical copies of main's files; registration was one import and one `addAll`.
+- **Wave 2** (`905c9b0`, unreleased) — `configure_tags`, `delete_tags`, `rename_tag`,
+  `import_tags`. `TagTools.kt` was taken from main wholesale: this branch's copy turned out to be a
+  strict subset apart from four lines, and those four were main's improvements.
+
+Two corrections to this plan came out of doing it, both worth carrying into the remaining waves:
+
+- **`Finding.kt` is a wave 2 dependency, not wave 4.** It is filed under wave 4 below because that
+  is where `ViewPerformanceAnalyzer` needs it; `TagConfigValidator` reports through it too. It is
+  already on the branch.
+- **`17bfc2f` was not pure feature work.** It also replaced `write_tags`'s
+  `quality.toString().contains("Good")` with `QualityCode.isGood`, and added a `getOrNull` guard —
+  a wrong-data fix to a tool that exists on *both* lines, which the earlier commit-by-commit parity
+  review classified away as part of a feature commit. It rode over with wave 2. Before wave 3,
+  diff the *files* a wave touches against main rather than trusting commit titles; anything the
+  8.1 copy is missing is either a port or a fix, and only the diff distinguishes them.
+
+Baselines when this was written: `main` at `366dd8f` (module 0.3.2, floor 8.3.7), `8.1/main` at
+`7c1bcd0` (module 0.2.1, floor 8.1.43).
 
 ## Feasibility — checked, not assumed
 
