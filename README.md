@@ -89,8 +89,8 @@ Perspective tools with it.
 **The tool set now matches the 8.3 line.** All 56 are here, ported in five waves: the JVM
 performance tools — `jvm_health`, `thread_dump`, `thread_hotspots` — as of 0.2.2; the tag
 configuration tools — `configure_tags`, `delete_tags`, `rename_tag`, `import_tags` — as of 0.2.3;
-`perspective_session_performance` as of 0.2.4; then `perspective_analyze_performance` and
-`save_project`.
+`perspective_session_performance` as of 0.2.4; and `perspective_analyze_performance` plus
+`save_project` as of 0.2.5.
 
 `save_project` is the only one that needed different code rather than a copy, and it is the only
 one whose behaviour differs:
