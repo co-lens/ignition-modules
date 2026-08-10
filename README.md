@@ -94,7 +94,7 @@ Perspective tools with it.
 
 Two waves of that port have landed: the JVM performance tools — `jvm_health`, `thread_dump`,
 `thread_hotspots` — as of 0.2.2, and the tag configuration tools — `configure_tags`,
-`delete_tags`, `rename_tag`, `import_tags` — after it.
+`delete_tags`, `rename_tag`, `import_tags` — as of 0.2.3.
 
 None of the remaining three is blocked by the 8.1 platform — every SDK API they need exists in
 8.1.43 with the same signatures. They are absent because nobody has ported them yet, and porting
