@@ -11,7 +11,7 @@
 > <https://co-lens.github.io/ignition-modules/>.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that runs inside Ignition, as a
-Kotlin module. 53 tools: the 8.3 line's 56, less three not yet ported. The other difference that
+Kotlin module. 54 tools: the 8.3 line's 56, less two not yet ported. The other difference that
 matters is authentication. Both are covered under [Differences](#differences-from-the-83-line).
 
 **Requires Ignition 8.1.43+ and Perspective** (see [Differences](#differences-from-the-83-line)).
@@ -78,30 +78,30 @@ per-session secret and never touched Ignition's auth. Use **Tools → MCP Connec
 | `scan_resource_files` `target: config` | supported | unavailable — 8.1 keeps gateway config in `config.idb`, not on disk |
 | Asset name | `Ignition-MCP-<v>.modl` | `Ignition-MCP-81-<v>.modl` |
 | Release tag | `mcp-v*` | `mcp81-v*` |
-| Tool count | 56 | 53 — the three below are absent |
+| Tool count | 56 | 54 — the two below are absent |
 
 **Why Perspective is required here.** 8.1's `ModuleInfoParser` has no `required` attribute on
 `<depends>`, so optional module dependencies don't exist on this platform line. Dropping the
 dependency instead would cost classloader visibility of Perspective's classes and take all 19
 Perspective tools with it.
 
-**Three tools on the 8.3 line are absent here**, all added to `main` after this branch forked:
+**Two tools on the 8.3 line are absent here**, both added to `main` after this branch forked:
 
 | Group | Tools |
 | --- | --- |
-| Perspective performance | `perspective_analyze_performance`, `perspective_session_performance` |
+| Perspective performance | `perspective_analyze_performance` |
 | Designer | `save_project` |
 
-Two waves of that port have landed: the JVM performance tools — `jvm_health`, `thread_dump`,
-`thread_hotspots` — as of 0.2.2, and the tag configuration tools — `configure_tags`,
-`delete_tags`, `rename_tag`, `import_tags` — as of 0.2.3.
+Three waves of that port have landed: the JVM performance tools — `jvm_health`, `thread_dump`,
+`thread_hotspots` — as of 0.2.2; the tag configuration tools — `configure_tags`, `delete_tags`,
+`rename_tag`, `import_tags` — as of 0.2.3; and `perspective_session_performance` after that.
 
-None of the remaining three is blocked by the 8.1 platform — every SDK API they need exists in
+Neither of the remaining two is blocked by the 8.1 platform — every SDK API they need exists in
 8.1.43 with the same signatures. They are absent because nobody has ported them yet, and porting
 them is explicitly in scope for this branch under the tool-surface-parity exception at the top of
 this file.
 
-For the 53 tools that *are* here, the names, arguments and behaviour are identical to the 8.3 line,
+For the 54 tools that *are* here, the names, arguments and behaviour are identical to the 8.3 line,
 and the [tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3
 docs site is accurate for them; its endpoint/auth pages are not.
 
