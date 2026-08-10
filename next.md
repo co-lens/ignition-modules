@@ -8,9 +8,10 @@ tool-surface work — see "Not in scope" for the one gap that stays.
 
 - **Wave 1** (`b5ad0d1`, released in **0.2.2**) — `jvm_health`, `thread_dump`, `thread_hotspots`.
   Byte-identical copies of main's files; registration was one import and one `addAll`.
-- **Wave 2** (`905c9b0`, unreleased) — `configure_tags`, `delete_tags`, `rename_tag`,
+- **Wave 2** (`905c9b0`, released in **0.2.3**) — `configure_tags`, `delete_tags`, `rename_tag`,
   `import_tags`. `TagTools.kt` was taken from main wholesale: this branch's copy turned out to be a
-  strict subset apart from four lines, and those four were main's improvements.
+  strict subset apart from four lines, and those four were main's improvements. 0.2.3 also carries
+  the `write_tags` fix described below.
 
 Two corrections to this plan came out of doing it, both worth carrying into the remaining waves:
 
