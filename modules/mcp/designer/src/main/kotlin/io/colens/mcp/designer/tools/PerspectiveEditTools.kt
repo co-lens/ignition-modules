@@ -13,7 +13,7 @@ import io.colens.mcp.common.optString
 import io.colens.mcp.common.perspective.ComponentCatalog
 import io.colens.mcp.common.perspective.PerspectiveComponentCatalog
 import io.colens.mcp.common.perspective.PerspectiveReadTools
-import io.colens.mcp.common.perspective.Severity
+import io.colens.mcp.common.Severity
 import io.colens.mcp.common.perspective.ViewDocument
 import io.colens.mcp.common.perspective.ViewSource
 import io.colens.mcp.common.perspective.ViewValidator

@@ -2,11 +2,13 @@ package io.colens.mcp.common.perspective
 
 import com.inductiveautomation.ignition.common.gson.JsonArray
 import com.inductiveautomation.ignition.common.gson.JsonObject
+import io.colens.mcp.common.Finding
 import io.colens.mcp.common.McpArgumentException
 import io.colens.mcp.common.Tool
 import io.colens.mcp.common.jsonArrayOf
 import io.colens.mcp.common.jsonArrayOfStrings
 import io.colens.mcp.common.jsonObject
+import io.colens.mcp.common.optInt
 import io.colens.mcp.common.optString
 import io.colens.mcp.common.put
 import io.colens.mcp.common.requireString
@@ -29,6 +31,7 @@ class PerspectiveReadTools(
         listComponentTypes(),
         getComponentType(),
         validateView(),
+        analyzePerformance(),
     )
 
     private fun projectArg(builder: io.colens.mcp.common.SchemaBuilder) {
@@ -232,6 +235,127 @@ class PerspectiveReadTools(
                 put("view", viewPath)
                 put("catalogAvailable", catalog.componentTypes().isNotEmpty())
                 ViewValidator.toJson(findings).entrySet().forEach { (k, v) -> add(k, v) }
+            }
+        },
+    )
+
+    /**
+     * The project-wide sweep. Deliberately one tool rather than a per-view one: the most expensive
+     * thing in Perspective is a view with many bindings rendered many times by a repeater somewhere
+     * else, and that is invisible from inside either view on its own.
+     */
+    private fun analyzePerformance() = Tool(
+        name = "perspective_analyze_performance",
+        title = "Analyze Perspective view performance",
+        description = "Sweeps a project's views and reports what each costs to open and to keep " +
+            "open — components, bindings, how many of those poll, script transforms, nesting " +
+            "depth and embedded views — alongside findings for the specific things that make a " +
+            "view slow: fast polling, expressions that install their own timers, script transform " +
+            "chains, uncached polled queries, and views repeated many times over by a repeater or " +
+            "carousel. Heaviest views come first. Pass 'view' to analyze a single view instead.",
+        inputSchema = schema {
+            projectArg(this)
+            string("view", "Analyze only this view, e.g. 'Page/Main'.")
+            string("pathContains", "Only analyze views whose path contains this substring.")
+            integer("limit", "Maximum number of views to analyze.", default = 100)
+            integer(
+                "minPollSeconds",
+                "Flag polling bindings faster than this many seconds.",
+                default = 5,
+            )
+            integer("componentBudget", "Flag views with more components than this.", default = 150)
+            integer("bindingBudget", "Flag views with more bindings than this.", default = 200)
+            integer("depthBudget", "Flag views nested deeper than this many levels.", default = 12)
+        },
+        handler = { args ->
+            val project = source.resolveProject(args.optString("project"))
+            val single = args.optString("view")
+            val filter = args.optString("pathContains")?.lowercase()
+            val limit = args.optInt("limit", 100).coerceAtLeast(1)
+
+            val analyzer = ViewPerformanceAnalyzer(
+                ViewPerformanceAnalyzer.Budgets(
+                    minPollSeconds = args.optInt("minPollSeconds", 5),
+                    components = args.optInt("componentBudget", 150),
+                    bindings = args.optInt("bindingBudget", 200),
+                    depth = args.optInt("depthBudget", 12),
+                ),
+            )
+
+            val candidates = if (single != null) {
+                listOf(ViewRef(single, null))
+            } else {
+                source.listViews(project)
+                    .filter { filter == null || it.path.lowercase().contains(filter) }
+                    .sortedBy { it.path }
+            }
+            val selected = candidates.take(limit)
+
+            // One unparseable view must not sink the sweep — same tolerance as list_views.
+            val skipped = mutableListOf<JsonObject>()
+            val analyzed = LinkedHashMap<String, ViewPerformanceAnalyzer.Analysis>()
+            val sizes = selected.associate { it.path to it.sizeBytes }
+
+            selected.forEach { ref ->
+                runCatching { analyzer.analyze(source.read(project, ref.path)) }
+                    .onSuccess { analyzed[ref.path] = it }
+                    .onFailure { e ->
+                        skipped += jsonObject {
+                            put("view", ref.path)
+                            put("reason", e.message ?: e.javaClass.simpleName)
+                        }
+                    }
+            }
+
+            // Cross-view pass. A repeater's target is only judgeable once both views are in hand,
+            // and a target outside the analyzed set simply yields no finding rather than a guess.
+            val crossView = analyzed.mapValues { (_, analysis) ->
+                analysis.repeats.mapNotNull { repeat ->
+                    analyzed[repeat.viewPath]?.let { analyzer.repeatedViewFinding(repeat, it) }
+                }
+            }
+
+            val rows = analyzed.entries.map { (path, analysis) ->
+                path to (analysis.findings + crossView.getValue(path))
+            }.sortedWith(
+                compareByDescending<Pair<String, List<Finding>>> { it.second.size }
+                    .thenByDescending { analyzed.getValue(it.first).bindingCount }
+                    .thenBy { it.first },
+            )
+
+            val findingCounts = rows.flatMap { it.second }.groupingBy { it.code }.eachCount()
+
+            jsonObject {
+                put("project", project)
+                put("viewsAnalyzed", analyzed.size)
+                put("viewsSkipped", skipped.size)
+                put("truncated", candidates.size > selected.size)
+                put("totals", jsonObject {
+                    put("components", analyzed.values.sumOf { it.componentCount })
+                    put("bindings", analyzed.values.sumOf { it.bindingCount })
+                    put("polledBindings", analyzed.values.sumOf { it.polledBindingCount })
+                    put("scriptTransforms", analyzed.values.sumOf { it.scriptTransformCount })
+                    put("findings", findingCounts.values.sum())
+                })
+                put("findingCounts", jsonObject {
+                    findingCounts.toSortedMap().forEach { (code, n) -> put(code, n) }
+                })
+                put("views", jsonArrayOf(rows.map { (path, findings) ->
+                    val analysis = analyzed.getValue(path)
+                    jsonObject {
+                        put("view", path)
+                        put("sizeBytes", sizes[path])
+                        put("componentCount", analysis.componentCount)
+                        put("bindingCount", analysis.bindingCount)
+                        put("polledBindingCount", analysis.polledBindingCount)
+                        put("scriptTransformCount", analysis.scriptTransformCount)
+                        put("eventCount", analysis.eventCount)
+                        put("maxDepth", analysis.maxDepth)
+                        put("embeddedViews", jsonArrayOfStrings(analysis.embeddedViews.distinct().sorted()))
+                        put("findings", jsonArrayOf(findings.map { it.toJson() }))
+                    }
+                }))
+                put("skipped", jsonArrayOf(skipped))
             }
         },
     )

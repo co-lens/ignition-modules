@@ -53,10 +53,17 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
     fun childPositionDefaultsOf(parentTypeId: String): JsonObject? =
         safe { registry()?.find(parentTypeId)?.orElse(null)?.childPositionDefaults()?.orElse(null) }
 
-    fun initialPropsOf(typeId: String, parentTypeId: String?): JsonObject? = safe {
-        val descriptor = registry()?.find(typeId)?.orElse(null) ?: return@safe null
-        if (parentTypeId != null) descriptor.getInitialProps(parentTypeId) else descriptor.defaultProperties()
-    }
+    /*
+     * There is deliberately no `initialPropsOf` here. One existed, was never called, and did not
+     * mean what its name suggested: `ComponentDescriptor.getInitialProps(String)` resolves a
+     * *palette variant id*, not a parent type, and returns `schema.getDefaultValue(true)` — the
+     * same defaults, plus any props the variant overrides. It is a superset of
+     * `defaultProperties()`, never a smaller "what the palette actually writes" set.
+     *
+     * The Designer writes few properties because its workspace prunes to the delta browser-side,
+     * which no Java call reproduces. `newComponentNode` therefore seeds no props at all, which
+     * produces the same file. Restoring a method here would just invite the same wrong fix again.
+     */
 
     override fun validateProps(typeId: String, props: JsonObject): List<SchemaViolation> {
         val descriptor = safe { registry()?.find(typeId)?.orElse(null) } ?: return emptyList()
