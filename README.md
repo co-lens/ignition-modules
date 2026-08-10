@@ -11,8 +11,8 @@
 > <https://co-lens.github.io/ignition-modules/>.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that runs inside Ignition, as a
-Kotlin module. 55 tools: the 8.3 line's 56, less save_project. The other difference that
-matters is authentication. Both are covered under [Differences](#differences-from-the-83-line).
+Kotlin module. The same 56 tools as the 8.3 line. The difference that matters is authentication —
+see [Differences](#differences-from-the-83-line).
 
 **Requires Ignition 8.1.43+ and Perspective** (see [Differences](#differences-from-the-83-line)).
 
@@ -78,29 +78,38 @@ per-session secret and never touched Ignition's auth. Use **Tools → MCP Connec
 | `scan_resource_files` `target: config` | supported | unavailable — 8.1 keeps gateway config in `config.idb`, not on disk |
 | Asset name | `Ignition-MCP-<v>.modl` | `Ignition-MCP-81-<v>.modl` |
 | Release tag | `mcp-v*` | `mcp81-v*` |
-| Tool count | 56 | 55 — `save_project` is absent |
+| Tool count | 56 | 56 — parity |
+| `save_project` permission pre-check | `canSaveProject` before the push | none — 8.1 exposes no equivalent, so the push is attempted and its failure reported |
 
 **Why Perspective is required here.** 8.1's `ModuleInfoParser` has no `required` attribute on
 `<depends>`, so optional module dependencies don't exist on this platform line. Dropping the
 dependency instead would cost classloader visibility of Perspective's classes and take all 19
 Perspective tools with it.
 
-**One tool on the 8.3 line is absent here:** `save_project`.
+**The tool set now matches the 8.3 line.** All 56 are here, ported in five waves: the JVM
+performance tools — `jvm_health`, `thread_dump`, `thread_hotspots` — as of 0.2.2; the tag
+configuration tools — `configure_tags`, `delete_tags`, `rename_tag`, `import_tags` — as of 0.2.3;
+`perspective_session_performance` as of 0.2.4; then `perspective_analyze_performance` and
+`save_project`.
 
-Four waves of that port have landed: the JVM performance tools — `jvm_health`, `thread_dump`,
-`thread_hotspots` — as of 0.2.2; the tag configuration tools — `configure_tags`, `delete_tags`,
-`rename_tag`, `import_tags` — as of 0.2.3; `perspective_session_performance` as of 0.2.4; and
-`perspective_analyze_performance` after that.
+`save_project` is the only one that needed different code rather than a copy, and it is the only
+one whose behaviour differs:
 
-`save_project` is the only one of the ten that needs different code rather than a copy: 8.1 has no
-`PlatformRpcInstances`, so the push goes through
-`GatewayConnectionManager.getInstance().gatewayInterface.pushProject(...)` instead, and 8.1 offers
-no equivalent of the `canSaveProject` permission pre-flight. The platform can do the work; the
-shape of the call differs.
+- 8.1 has no `PlatformRpcInstances`, so the push goes through
+  `GatewayConnectionManager.getInstance().gatewayInterface.pushProject(...)` — the same chain
+  `merge_gateway_changes` already uses for the pull.
+- **There is no permission pre-check.** 8.3 asks `canSaveProject` before pushing; 8.1's
+  `GatewayInterface` exposes `pushProject` and `pullProject` and no permission probe, so the push
+  is attempted and its failure reported. A save the gateway will not accept therefore surfaces as
+  the gateway's own error rather than as a specific "you lack save rights". Nothing is committed
+  in that case and the changes stay staged.
 
-For the 55 tools that *are* here, the names, arguments and behaviour are identical to the 8.3 line,
-and the [tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3
-docs site is accurate for them; its endpoint/auth pages are not.
+Everything else about it is unchanged, including the conflict refusal and the `-Dmcp.designer.allowSave`
+opt-in — without that property the tool is not registered at all.
+
+For every tool here, the names and arguments are identical to the 8.3 line, and the
+[tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3 docs site
+is accurate for them, with the `save_project` caveat above; its endpoint/auth pages are not.
 
 ## Build
 

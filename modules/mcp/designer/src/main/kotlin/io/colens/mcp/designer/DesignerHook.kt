@@ -50,9 +50,27 @@ class DesignerHook : AbstractDesignerModuleHook() {
             return
         }
 
+        val designerTools = DesignerTools(context)
         val registry = ToolRegistry()
-            .addAll(DesignerTools(context).tools())
+            .addAll(designerTools.tools())
             .addAll(perspectiveTools())
+
+        // Gated here rather than inside tools(), matching the 8.3 line: a Designer that has not
+        // opted in never exposes save_project at all.
+        if (DesignerTools.saveAllowed()) {
+            registry.add(designerTools.saveTool())
+            logger.warn(
+                "-D{}=true is set: save_project is available, so a connected client can commit " +
+                    "this Designer's staged changes to the gateway with nobody reviewing them. " +
+                    "That is the one guarantee the Designer scope otherwise makes. Intended for " +
+                    "unattended use — a VM, CI, or a scheduled run — not for a Designer somebody " +
+                    "is sitting at. If you ARE working in this Designer, note that save_project " +
+                    "pushes the project tree and does NOT flush editors you have open and " +
+                    "unsaved: their contents would be left behind by a save you did not perform. " +
+                    "On this 8.1 line there is also no permission pre-check before the push.",
+                DesignerTools.SAVE_PROPERTY,
+            )
+        }
 
         val discoveryFile = DiscoveryFile()
         if (!discoveryFile.initialize()) {
@@ -65,7 +83,10 @@ class DesignerHook : AbstractDesignerModuleHook() {
             tools = registry,
             serverVersion = moduleVersion(),
             serverName = "${Constants.SERVER_NAME}-designer",
-            instructions = INSTRUCTIONS,
+            // Instructions are served on every connect, so they have to match what is actually
+            // registered — a model told "nothing is ever committed" while holding save_project
+            // gets contradictory guidance.
+            instructions = if (DesignerTools.saveAllowed()) INSTRUCTIONS_WITH_SAVE else INSTRUCTIONS,
         )
 
         val server = McpHttpServer(mcp, discoveryFile.secret)
@@ -147,6 +168,21 @@ This server is attached to a running Ignition Designer with a project open.
 Reads reflect the Designer's current state, including edits not yet saved to the gateway.
 Writes are staged as unsaved Designer changes — they are never committed for you. After
 write_resource or delete_resource, tell the user to review the change in the Designer and save it.
+
+Use list_resources with no filter first to discover the moduleId/type pairs in this project.
+"""
+
+        const val INSTRUCTIONS_WITH_SAVE = """
+This server is attached to a running Ignition Designer with a project open.
+
+Reads reflect the Designer's current state, including edits not yet saved to the gateway.
+Writes are staged as unsaved Designer changes and are not committed until something saves them.
+
+This Designer was started with saving enabled, so save_project is available and commits staged
+changes to the gateway. Prefer letting a human save when there is one: use save_project when you
+are operating unattended, or when the user has asked you to save. Review with
+list_pending_changes first, and expect save_project to refuse if a staged edit conflicts with a
+change waiting on the gateway.
 
 Use list_resources with no filter first to discover the moduleId/type pairs in this project.
 """
