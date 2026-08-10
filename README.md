@@ -11,9 +11,10 @@
 > <https://co-lens.github.io/ignition-modules/>.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server that runs inside Ignition, as a
-Kotlin module. Same 46 tools as the 8.3 line. The difference that matters is authentication.
+Kotlin module. 46 tools: the 8.3 line's 56, less ten that are 8.3-only. The other difference that
+matters is authentication. Both are covered under [Differences](#differences-from-the-83-line).
 
-**Requires Ignition 8.1.40+ and Perspective** (see [Differences](#differences-from-the-83-line)).
+**Requires Ignition 8.1.43+ and Perspective** (see [Differences](#differences-from-the-83-line)).
 
 ## Authentication — read this first
 
@@ -77,15 +78,28 @@ per-session secret and never touched Ignition's auth. Use **Tools → MCP Connec
 | `scan_resource_files` `target: config` | supported | unavailable — 8.1 keeps gateway config in `config.idb`, not on disk |
 | Asset name | `Ignition-MCP-<v>.modl` | `Ignition-MCP-81-<v>.modl` |
 | Release tag | `mcp-v*` | `mcp81-v*` |
+| Tool count | 56 | 46 — the ten below are absent |
 
 **Why Perspective is required here.** 8.1's `ModuleInfoParser` has no `required` attribute on
 `<depends>`, so optional module dependencies don't exist on this platform line. Dropping the
 dependency instead would cost classloader visibility of Perspective's classes and take all 19
 Perspective tools with it.
 
-Everything else — the tool set, their names, arguments and behaviour — is identical. **The
-[tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3 docs site
-is accurate for this line too**; only its endpoint/auth pages are not.
+**Ten tools on the 8.3 line are absent here**, all added to `main` after this branch forked:
+
+| Group | Tools |
+| --- | --- |
+| Tag configuration | `configure_tags`, `delete_tags`, `rename_tag`, `import_tags` |
+| Performance | `jvm_health`, `thread_dump`, `thread_hotspots`, `perspective_analyze_performance`, `perspective_session_performance` |
+| Designer | `save_project` |
+
+None of these is blocked by the 8.1 platform — every SDK API they need exists in 8.1.43 with the
+same signatures. They are absent because nobody has ported them, and porting them is explicitly in
+scope for this branch under the tool-surface-parity exception at the top of this file.
+
+For the 46 tools that *are* here, the names, arguments and behaviour are identical to the 8.3 line,
+and the [tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3
+docs site is accurate for them; its endpoint/auth pages are not.
 
 ## Build
 
