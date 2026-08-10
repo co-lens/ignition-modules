@@ -6,18 +6,25 @@ import com.inductiveautomation.ignition.common.gson.JsonElement
 import com.inductiveautomation.ignition.common.gson.JsonObject
 import com.inductiveautomation.ignition.common.model.values.BasicQualifiedValue
 import com.inductiveautomation.ignition.common.model.values.QualifiedValue
+import com.inductiveautomation.ignition.common.model.values.QualityCode
 import com.inductiveautomation.ignition.common.tags.TagUtilities
 import com.inductiveautomation.ignition.common.tags.browsing.NodeDescription
+import com.inductiveautomation.ignition.common.tags.config.BasicTagConfiguration
+import com.inductiveautomation.ignition.common.tags.config.CollisionPolicy
 import com.inductiveautomation.ignition.common.tags.model.TagPath
 import com.inductiveautomation.ignition.common.tags.model.SecurityContext
 import com.inductiveautomation.ignition.common.tags.model.TagProvider
 import com.inductiveautomation.ignition.common.tags.paths.parser.TagPathParser
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
 import io.colens.mcp.common.McpArgumentException
+import io.colens.mcp.common.McpJson
+import io.colens.mcp.common.Severity
 import io.colens.mcp.common.Tool
+import io.colens.mcp.common.findingsJson
 import io.colens.mcp.common.jsonArrayOf
 import io.colens.mcp.common.jsonArrayOfStrings
 import io.colens.mcp.common.jsonObject
+import io.colens.mcp.common.optArray
 import io.colens.mcp.common.optBoolean
 import io.colens.mcp.common.optInt
 import io.colens.mcp.common.optString
@@ -25,6 +32,9 @@ import io.colens.mcp.common.put
 import io.colens.mcp.common.requireString
 import io.colens.mcp.common.requireStringList
 import io.colens.mcp.common.schema
+import io.colens.mcp.common.tags.NoTagPropertyCatalog
+import io.colens.mcp.common.tags.TagConfigValidator
+import io.colens.mcp.common.tags.TagPropertyCatalog
 import io.colens.mcp.common.toJsonValue
 import java.util.concurrent.TimeUnit
 
@@ -36,6 +46,10 @@ class TagTools(private val context: GatewayContext) {
         readTags(),
         getTagConfig(),
         writeTags(),
+        configureTags(),
+        deleteTags(),
+        renameTag(),
+        importTags(),
     )
 
     private fun listTagProviders() = Tool(
@@ -180,7 +194,7 @@ class TagTools(private val context: GatewayContext) {
                 tagPath(o.requireString("path"), null) to BasicQualifiedValue(unwrap(o.get("value")))
             }
 
-            val outcomes = LinkedHashMap<Int, String>()
+            val outcomes = LinkedHashMap<Int, QualityCode>()
             requests.withIndex()
                 .groupBy { it.value.first.source }
                 .forEach { (source, indexed) ->
@@ -191,7 +205,7 @@ class TagTools(private val context: GatewayContext) {
                             SecurityContext.systemContext(),
                         )
                         .get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    indexed.forEachIndexed { i, iv -> outcomes[iv.index] = qualities[i].toString() }
+                    indexed.forEachIndexed { i, iv -> qualities.getOrNull(i)?.let { outcomes[iv.index] = it } }
                 }
 
             jsonObject {
@@ -199,13 +213,278 @@ class TagTools(private val context: GatewayContext) {
                     jsonObject {
                         put("path", path.toString())
                         put("value", toJsonValue(value.value))
-                        put("quality", outcomes[i])
-                        put("ok", outcomes[i]?.contains("Good", ignoreCase = true) ?: false)
+                        put("quality", outcomes[i]?.toString())
+                        // isGood, not a substring match on the name: a quality merely *containing*
+                        // "Good" is not necessarily good.
+                        put("ok", outcomes[i]?.isGood ?: false)
                     }
                 }))
             }
         },
     )
+
+    // -----------------------------------------------------------------------
+    // Configuration
+    // -----------------------------------------------------------------------
+
+    private fun configureTags() = Tool(
+        name = "configure_tags",
+        title = "Create or edit tag configuration",
+        description = "Creates or edits tags, UDT definitions and UDT instances. Each entry in " +
+            "'tags' is a configuration object in the same shape get_tag_config returns, carrying " +
+            "its own 'name'; 'parentPath' is the folder they go into. Write UDT definitions to " +
+            "the provider's _types_ folder, e.g. parentPath '[default]_types_'.\n\n" +
+            "Collisions default to MergeOverwrite: properties you send are applied and properties " +
+            "you leave out keep their current values, so editing one setting does not require " +
+            "sending the whole tag. Use Overwrite only when you mean to REPLACE the configuration " +
+            "— it drops every property you did not send, including alarms and history settings. " +
+            "Use Abort to refuse to touch anything that already exists.\n\n" +
+            "The configuration is validated first and the whole call is refused if anything is " +
+            "wrong, because Ignition's own parser accepts several broken inputs silently — most " +
+            "notably a UDT parameter given a value but no dataType, which it discards while " +
+            "reporting success.\n\n" +
+            "Validation is not the only way a tag can fail. The provider can still refuse an " +
+            "individual one — an Abort collision being the ordinary case — so compare 'written' " +
+            "against 'attempted', or read 'ok' per entry in 'results'. A refusal leaves that " +
+            "tag exactly as it was.",
+        inputSchema = schema {
+            string(
+                "parentPath",
+                "Folder the tags are created in, e.g. '[default]Area1', '[default]' for the " +
+                    "provider root, or '[default]_types_' for UDT definitions.",
+                required = true,
+            )
+            array(
+                name = "tags",
+                description = "Tag configuration objects, each with its own 'name'.",
+                items = jsonObject { put("type", "object") },
+                required = true,
+            )
+            enumString(
+                "collisionPolicy",
+                "What to do when a tag already exists at that path.",
+                values = COLLISION_POLICIES,
+                default = "MergeOverwrite",
+            )
+        },
+        readOnly = false,
+        destructive = true,
+        handler = { args ->
+            val parentPath = tagPath(args.requireString("parentPath"), null)
+            val provider = tagProvider(parentPath)
+            val policy = collisionPolicy(args.optString("collisionPolicy"))
+
+            val configs = (args.optArray("tags") ?: throw McpArgumentException("Missing required argument 'tags'"))
+                .map {
+                    it.takeIf { e -> e.isJsonObject }?.asJsonObject
+                        ?: throw McpArgumentException("Every entry in 'tags' must be an object")
+                }
+            if (configs.isEmpty()) throw McpArgumentException("'tags' must not be empty")
+
+            val findings = TagConfigValidator(propertyCatalog(provider)).validateAll(configs)
+
+            if (findings.any { it.severity == Severity.ERROR }) {
+                jsonObject {
+                    put("parentPath", parentPath.toString())
+                    put("written", 0)
+                    put("note", "Nothing was written. Fix the errors below and call again.")
+                    findingsJson(findings).entrySet().forEach { (k, v) -> add(k, v) }
+                }
+            } else {
+                val tagConfigs = configs.flatMap { config ->
+                    try {
+                        TagUtilities.toTagConfiguration(McpJson.toString(config), parentPath)
+                    } catch (e: Exception) {
+                        throw McpArgumentException(
+                            "Could not read the configuration for " +
+                                "'${config.get("name")?.asString ?: "an unnamed tag"}': ${e.message}"
+                        )
+                    }
+                }
+
+                val qualities = provider
+                    .saveTagConfigsAsync(tagConfigs, policy, SecurityContext.systemContext())
+                    .get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
+                jsonObject {
+                    put("parentPath", parentPath.toString())
+                    put("provider", parentPath.source)
+                    put("collisionPolicy", policy.name)
+                    // Actually written, not attempted. These differ whenever the provider refuses
+                    // an individual tag — an Abort collision being the ordinary case — and a
+                    // caller asserting written == tags.size would otherwise read a total refusal
+                    // as a complete success.
+                    put("written", qualities.count { it.isGood })
+                    put("attempted", tagConfigs.size)
+                    put("results", jsonArrayOf(tagConfigs.mapIndexed { i, config ->
+                        jsonObject {
+                            put("path", config.path?.toString())
+                            put("quality", qualities.getOrNull(i)?.toString())
+                            put("ok", qualities.getOrNull(i)?.isGood)
+                        }
+                    }))
+                    findingsJson(findings).entrySet().forEach { (k, v) -> add(k, v) }
+                }
+            }
+        },
+    )
+
+    private fun deleteTags() = Tool(
+        name = "delete_tags",
+        title = "Delete tags",
+        description = "Removes tags, folders or UDT definitions and everything under them. " +
+            "Deleting a UDT definition breaks every instance of it, so check with browse_tags " +
+            "first. This cannot be undone from here.",
+        inputSchema = schema {
+            stringArray("paths", "Tag paths to delete, e.g. '[default]Area1/Old'.", required = true)
+        },
+        readOnly = false,
+        destructive = true,
+        handler = { args ->
+            val paths = args.requireStringList("paths").map { tagPath(it, null) }
+
+            // Same index-preserving grouping as write_tags: one call per provider, results
+            // written back into the caller's original order.
+            val outcomes = LinkedHashMap<Int, QualityCode>()
+            paths.withIndex().groupBy { it.value.source }.forEach { (source, indexed) ->
+                val qualities = tagProvider(source)
+                    .removeTagConfigsAsync(indexed.map { it.value }, SecurityContext.systemContext())
+                    .get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                indexed.forEachIndexed { i, iv -> qualities.getOrNull(i)?.let { outcomes[iv.index] = it } }
+            }
+
+            jsonObject {
+                put("deleted", outcomes.count { it.value.isGood })
+                put("results", jsonArrayOf(paths.mapIndexed { i, path ->
+                    jsonObject {
+                        put("path", path.toString())
+                        put("quality", outcomes[i]?.toString())
+                        put("ok", outcomes[i]?.isGood ?: false)
+                    }
+                }))
+            }
+        },
+    )
+
+    private fun renameTag() = Tool(
+        name = "rename_tag",
+        title = "Rename a tag",
+        description = "Renames a tag in place. This is a real rename rather than a delete and " +
+            "recreate, so tag history and UDT instance membership survive it — but every " +
+            "reference to the old path, in bindings, scripts and other tags, breaks.",
+        inputSchema = schema {
+            string("path", "Tag path to rename, e.g. '[default]Area1/Pmp1'.", required = true)
+            string("newName", "The new name. Not a path — the tag stays where it is.", required = true)
+        },
+        readOnly = false,
+        destructive = true,
+        handler = { args ->
+            val path = tagPath(args.requireString("path"), null)
+            val newName = args.requireString("newName")
+
+            if (!TagUtilities.isValidName(newName)) {
+                throw McpArgumentException(
+                    "'$newName' is not a valid tag name. Names cannot contain path characters " +
+                        "such as / \\ . [ ] — pass a name, not a path."
+                )
+            }
+
+            // Abort rather than the usual default: renaming onto a name that is already taken
+            // should fail loudly, not overwrite whatever was there.
+            val quality = tagProvider(path)
+                .saveTagConfigsAsync(
+                    listOf(BasicTagConfiguration.createRename(path, newName)),
+                    CollisionPolicy.Abort,
+                    SecurityContext.systemContext(),
+                )
+                .get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .firstOrNull()
+
+            jsonObject {
+                put("path", path.toString())
+                put("newName", newName)
+                put("quality", quality?.toString())
+                put("ok", quality?.isGood ?: false)
+            }
+        },
+    )
+
+    private fun importTags() = Tool(
+        name = "import_tags",
+        title = "Import a tag export",
+        description = "Applies a whole Designer-style tag export in one call. Use it to move a " +
+            "folder or a type library; for individual tags configure_tags is easier to get " +
+            "right, since it validates each one and reports per-tag results.\n\n" +
+            "Pass exactly what system.tag.exportTags produced, unchanged, and do NOT reshape it into " +
+            "configure_tags' 'tags' array — the two tools take deliberately different shapes. " +
+            "Note the export shape depends on how many paths were exported: one path yields a " +
+            "bare object, several yield an object wrapping a 'tags' array. This tool accepts " +
+            "both, which is exactly why passing it through untouched is the rule.\n\n" +
+            "Check 'imported' against 'total' rather than 'findings'. A malformed payload fails " +
+            "in Ignition's parser rather than in validation, so it surfaces in 'qualities' and " +
+            "leaves 'findings' empty — a response that looks clean apart from imported being 0. " +
+            "Nothing is partially written when that happens.",
+        inputSchema = schema {
+            string(
+                "parentPath",
+                "Folder to import into, e.g. '[default]Area1' or '[default]' for the root.",
+                required = true,
+            )
+            string(
+                "json",
+                "The tag export JSON, as a string, exactly as system.tag.exportTags emitted it.",
+                required = true,
+            )
+            enumString(
+                "collisionPolicy",
+                "What to do where the export overlaps existing tags.",
+                values = COLLISION_POLICIES,
+                default = "MergeOverwrite",
+            )
+        },
+        readOnly = false,
+        destructive = true,
+        handler = { args ->
+            val parentPath = tagPath(args.requireString("parentPath"), null)
+            val json = args.requireString("json")
+            val policy = collisionPolicy(args.optString("collisionPolicy"))
+
+            val qualities = tagProvider(parentPath)
+                .importTagsAsync(parentPath, json, IMPORT_FORMAT, policy, SecurityContext.systemContext())
+                .get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+
+            jsonObject {
+                put("parentPath", parentPath.toString())
+                put("collisionPolicy", policy.name)
+                put("imported", qualities.count { it.isGood })
+                put("total", qualities.size)
+                put("qualities", jsonArrayOfStrings(qualities.map { it.toString() }))
+            }
+        },
+    )
+
+    private fun collisionPolicy(name: String?): CollisionPolicy {
+        if (name == null) return CollisionPolicy.MergeOverwrite
+        return CollisionPolicy.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
+            ?: throw McpArgumentException(
+                "Unknown collisionPolicy '$name'. Use one of: ${COLLISION_POLICIES.joinToString(", ")}."
+            )
+    }
+
+    /**
+     * The provider's own list of valid tag property names, which the validator uses to tell a
+     * typo from a deliberate custom property. Degrades to no catalog rather than failing the
+     * call — a missing property model should cost you two rules, not the whole tool.
+     */
+    private fun propertyCatalog(provider: TagProvider): TagPropertyCatalog =
+        runCatching {
+            val names = provider.tagConfigModelAsync
+                .get(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .modelProperties
+                .mapNotNull { it.name }
+                .toSet()
+            if (names.isEmpty()) NoTagPropertyCatalog else TagPropertyCatalog { names }
+        }.getOrDefault(NoTagPropertyCatalog)
 
     // -----------------------------------------------------------------------
 
@@ -299,5 +578,14 @@ class TagTools(private val context: GatewayContext) {
         const val DEFAULT_PROVIDER = "default"
         const val READ_TIMEOUT_SECONDS = 30L
         const val WRITE_TIMEOUT_SECONDS = 30L
+
+        val COLLISION_POLICIES = CollisionPolicy.entries.map { it.name }
+
+        /**
+         * `importTagsAsync`'s format argument. Matches `system.tag.exportTags`' own — the other
+         * value there is "xml" — and confirmed end to end on 8.3.8: export a UDT, delete it,
+         * import the bytes back, and the persisted file is byte-identical to the original.
+         */
+        const val IMPORT_FORMAT = "json"
     }
 }
