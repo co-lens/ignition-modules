@@ -29,27 +29,32 @@ further is built. If you have a choice, use 8.3.
 | Perspective | optional — the module loads without it | **required** — the module will not install without it |
 | Config file scan | `scan_resource_files` covers `target: config` | config lives in `config.idb`, not on disk, so that target reports itself unavailable |
 | Minimum platform version | 8.3.7 (module 0.3.2+) | 8.1.43 (module 0.2.1+) |
-| Tool count | 56 | 46 — the ten below are absent |
-| Tag configuration | `configure_tags`, `delete_tags`, `rename_tag`, `import_tags` | absent — unported |
-| [Performance tools](./performance.md) | all five | absent — unported |
-| [`save_project`](./designer-save.md) | opt-in via `-Dmcp.designer.allowSave` | absent — unported |
+| Tool count | 56 | 56 — parity |
+| [`save_project`](./designer-save.md) permission pre-check | `canSaveProject` before the push | none — 8.1 exposes no equivalent, so the push is attempted and its failure reported |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
 
-For the 46 tools present on both lines, the names, arguments and behaviour are identical, and
+**The tool sets match.** The ten tools that were 8.1-only-absent — the four tag configuration
+tools, the five performance tools and `save_project` — were ported in five waves and are on the 8.1
+line as of module 0.2.5. Names and arguments are identical on both lines, and
 [Perspective](./perspective/index.md), the Designer bridge and the trial tools work the same way.
 Where a platform genuinely can't do something the tool still exists with the same arguments rather
 than disappearing: `scan_resource_files` is on both lines, and only its `config` target is
-unavailable on 8.1. The [tool reference](./tools/index.md) documents the 8.3 line, so treat the ten
-tools listed above as the delta when reading it against an 8.1 gateway.
+unavailable on 8.1.
 
-**Those ten are absent because nobody has ported them, not because 8.1 can't run them.** Every SDK
-API they need exists in 8.1.43 with the same signatures — verified against the 8.1.43 jars, not
-inferred. The 8.1 branch's charter freezes it to security and wrong-data fixes *but explicitly
-excepts changes that keep the tool surface identical to the 8.3 line*, so porting them is in scope
-whenever someone picks it up.
+The [tool reference](./tools/index.md) documents the 8.3 line and is now accurate for 8.1 too, with
+one behavioural caveat: `save_project` does no permission pre-check there. 8.3 asks
+`canSaveProject` before pushing; 8.1's `GatewayInterface` offers `pushProject` and `pullProject`
+and no permission probe, so a save the gateway refuses surfaces as the gateway's own error rather
+than as a rights refusal. Nothing is committed either way.
 
-`scan_resource_files`'s `config` target is the only difference in this document forced by the
-platform itself.
+Nothing in the ported set needed an 8.3 API — every one resolved against the 8.1.43 jars, checked
+rather than inferred. Porting them was in scope because the 8.1 branch's charter freezes it to
+security and wrong-data fixes *but explicitly excepts changes that keep the tool surface identical
+to the 8.3 line*.
+
+Three differences in this document are forced by the platform rather than by anyone's choice:
+`scan_resource_files`'s `config` target, `save_project`'s missing permission pre-check, and the
+whole of the authentication split below. Everything else is a decision.
 
 ## Why 8.1 authentication is weaker
 

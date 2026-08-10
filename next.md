@@ -4,7 +4,10 @@
 branch under the tool-surface-parity exception in its README, and it is the only outstanding
 tool-surface work — see "Not in scope" for the one gap that stays.
 
-**Progress: waves 1–4 are done — 55 tools on 8.1. Only `save_project` (wave 5) is left.**
+> **Done.** All five waves landed; the 8.1 line carries the same 56 tools as `main` as of module
+> **0.2.5**. What is left is verification on a real 8.1 gateway, not more porting. This file is
+> kept for the record of how it was done and what each wave cost — delete it once the gateway pass
+> is finished.
 
 - **Wave 1** (`b5ad0d1`, released in **0.2.2**) — `jvm_health`, `thread_dump`, `thread_hotspots`.
   Byte-identical copies of main's files; registration was one import and one `addAll`.
@@ -14,7 +17,11 @@ tool-surface work — see "Not in scope" for the one gap that stays.
   the `write_tags` fix described below.
 - **Wave 3** (`411f706`, released in **0.2.4**) — `perspective_session_performance`. Both files
   strictly additive between the branches; not one existing line differed.
-- **Wave 4** (`07d34cd`, unreleased) — `perspective_analyze_performance`, plus the `Finding`
+- **Wave 5** (`9ea2d45`, released in **0.2.5**) — `save_project`. The only one written rather than
+  copied, and the only tool whose behaviour differs across the lines: 8.1 has no permission
+  pre-check, because `GatewayInterface` offers no probe to make one from. Dropped rather than
+  approximated — see the commit and the tool's own description.
+- **Wave 4** (`07d34cd`, released in **0.2.5**) — `perspective_analyze_performance`, plus the `Finding`
   consolidation. The wave this plan called the riskiest turned out to be routine: `ViewValidator`
   and `PerspectiveComponentCatalog` were taken from main unchanged, `PerspectiveReadTools` was
   strictly additive, and the only bespoke edit was repointing one import in `PerspectiveEditTools`.
