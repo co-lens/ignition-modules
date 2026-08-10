@@ -13,6 +13,7 @@ import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.put
 import io.colens.mcp.gateway.licensing.TrialWatchdog
 import io.colens.mcp.gateway.tools.DataTools
+import io.colens.mcp.gateway.tools.PerfTools
 import io.colens.mcp.gateway.tools.PerspectiveTools
 import io.colens.mcp.gateway.tools.ProjectTools
 import io.colens.mcp.gateway.tools.SystemTools
@@ -76,6 +77,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
             .addAll(ProjectTools(context).tools())
             .addAll(DataTools(context).tools())
             .addAll(SystemTools(context).tools())
+            .addAll(PerfTools(context).tools())
             .addAll(perspectiveTools())
 
         val version = moduleVersion()
@@ -121,9 +123,13 @@ class GatewayHook : AbstractGatewayModuleHook() {
         // 8.1 has no ApiTokenManager, so the read/write split is carried by two shared secrets
         // rather than by token permissions:
         //
-        //   -Dmcp.gateway.readSecret   -> the 14 read-only tools on /mcp-readonly
-        //   -Dmcp.gateway.writeSecret  -> all 17 on /mcp, INCLUDING run_script and reset_trial,
-        //                                 and also accepted on /mcp-readonly
+        //   -Dmcp.gateway.readSecret   -> the read-only tools on /mcp-readonly
+        //   -Dmcp.gateway.writeSecret  -> all of them on /mcp, INCLUDING run_script and
+        //                                 reset_trial, and also accepted on /mcp-readonly
+        //
+        // Deliberately not stating the counts here. They were "14" and "17" for long enough to be
+        // wrong by more than half, because nothing fails when a comment goes stale. The true
+        // numbers are logged at startup by the line in `startup` above.
         //
         // Routes are mounted even when the secrets are unset, and answer 401. Refusing to mount
         // would produce a 404, which an operator cannot tell apart from "the module isn't
