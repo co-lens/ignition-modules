@@ -1,0 +1,40 @@
+# Pinned 8.1.43 gateway, for verifying the 8.1 module installs and runs on its declared floor.
+#
+# The module in `/home/nate/src/mcp-ignition-81` is a git worktree of the `8.1/main` branch —
+# that branch is never merged into main, so its build output lives outside this checkout. Rebuild
+# there, then `docker compose -f ... restart` here.
+#
+# `restart` only. NEVER `up -d` on a running one: nothing is persisted, so recreating the container
+# takes the projects, tags and users with it.
+name: mcp-test-8143
+
+services:
+  ignition-gateway:
+    image: inductiveautomation/ignition:8.1.43
+    ports:
+      - 18400:8088
+      - 18401:8000
+    volumes:
+      # UNSIGNED deliberately, and this is the opposite of what you'd expect: on 8.1 a module
+      # signed with an unknown certificate is QUARANTINED until an operator approves it in the UI,
+      # while an unsigned one loads immediately under the flag below.
+      - /home/nate/src/mcp-ignition-81/modules/mcp/build/Ignition-MCP-81.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP-81.modl:ro
+    environment:
+      GATEWAY_ADMIN_PASSWORD: password
+      IGNITION_EDITION: standard
+      ACCEPT_IGNITION_EULA: Y
+      ALLOW_UNSIGNED_MODULES: "true"
+      # Deliberately no GATEWAY_MODULES_ENABLED — see the 8.3.7 file.
+    # 8.1 has no API tokens, so the endpoints are gated by these two shared secrets. Dev values,
+    # and they are visible in the process table by design on this line.
+    command: >
+      -n mcp-test-8143
+      -d
+      --
+      -Dignition.allowunsignedmodules=true
+      -Dia.developer.moduleupload=true
+      -Dmcp.trialWatchdog=true
+      -Dmcp.trialWatchdog.intervalSeconds=10
+      -Dmcp.designer.allowSave=true
+      -Dmcp.gateway.readSecret=test-read-0123456789abcdef0123456789abcdef
+      -Dmcp.gateway.writeSecret=test-write-0123456789abcdef0123456789abcdef

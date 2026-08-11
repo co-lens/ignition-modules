@@ -91,8 +91,18 @@ Working as designed: your credential is valid but doesn't carry write access.
 <Tabs groupId="ignition-version" queryString>
 <TabItem value="83" label="Ignition 8.3" default>
 
-The token needs the gateway's **write** permission, which by default means the `Administrator`
-role, set under **Config → Security → Security Levels**.
+The key needs the gateway's **write** permission, which a default 8.3 ships as
+`AnyOf[Authenticated/Roles/Administrator]`.
+
+Ticking `Administrator` on the key will not do it — 8.3 ignores `Authenticated/Roles` and
+`SecurityZones` levels granted to an API key, so on a default gateway **no key can satisfy
+`writePermissions` at all**. You have to create a security level of your own, add it to **Gateway
+Write Permissions**, and grant it to the key: see
+[Issue a credential](./quickstart.md#3-issue-a-credential) for the three steps.
+
+If you granted a level and still get 403, check that you ticked it under **Gateway Write
+Permissions** and not only on the key — the key holding a level the gateway never asks for changes
+nothing.
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">

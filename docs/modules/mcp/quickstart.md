@@ -112,20 +112,39 @@ all. Either way, [Troubleshooting](./troubleshooting.md) has the next step.
 <Tabs groupId="ignition-version" queryString>
 <TabItem value="83" label="Ignition 8.3" default>
 
-**Config → Security → API Tokens**. A default token (security level `Authenticated`, no extra
-permissions) is all the read-only endpoint needs. The token is `<keyId>:<secret>`.
+**Platform → Security → API Keys** (older 8.3 builds label it Config → Security → API Tokens). A
+default key (security level `Authenticated`, no extra permissions) is all the read-only endpoint
+needs. The credential is `<keyId>:<secret>`, and it is **shown once, at creation** — there is no
+way to read it back afterwards.
 
 :::warning The gotcha that costs everyone an hour
-New tokens default to **Require Secure Channel**, which makes them fail with `401` over plain HTTP
-no matter what else is correct. Use HTTPS, or untick that box for a local gateway.
+New keys default to **Require secure connections for API Keys**, which makes them fail over plain
+HTTP no matter what else is correct. Use HTTPS, or untick that box for a local gateway.
 :::
 
-:::warning Writing needs a second permission — grant it now if you want the write tools
-A default token reaches the read-only endpoint and **only** that. The write endpoint checks the
-gateway's **write** permission, which out of the box means the `Administrator` role, set under
-**Config → Security → Security Levels**. A freshly-commissioned 8.3 ships `writePermissions` as
-`AnyOf[Authenticated/Roles/Administrator]`, and a token carrying only `Authenticated` does not
+:::warning Writing needs a custom security level — you cannot just grant Administrator
+A default key reaches the read-only endpoint and **only** that. The write endpoint checks the
+gateway's **write** permission, which a freshly-commissioned 8.3 ships as
+`AnyOf[Authenticated/Roles/Administrator]` — and a key carrying only `Authenticated` does not
 satisfy it.
+
+**You cannot fix this by ticking `Administrator` on the key.** The checkbox is visible in the key's
+security-level tree and does nothing: 8.3 ignores `Authenticated/Roles` and `SecurityZones` levels
+granted to an API key, because those are system-generated levels a user is not allowed to assign.
+Editing `securityLevels` in the key's `config.json` on disk does not work either, for the same
+reason. So on a default gateway **no API key can ever reach the write endpoint** until you add a
+level of your own. Three steps, all in the gateway UI:
+
+1. **Platform → Security → Levels** — select `Authenticated`, **Add Level**, name it (e.g.
+   `McpWrite`), **Save Changes**. Its path becomes `Authenticated/McpWrite`.
+2. **Platform → Security → General Settings → Roles & Permissions** — under **Gateway Write
+   Permissions**, tick your new level and **Save Changes**. Leave the mode on *at least one of*, so
+   `Administrator` keeps working for human users.
+3. **Platform → Security → API Keys** — create the key (or **⋮ → Edit** an existing one) and tick
+   the new level under `Authenticated`.
+
+Verified on 8.3.7. Note this widens gateway-wide write permission, not just MCP's: anything else
+checking `writePermissions` now also accepts that level, so give it only to keys that should have it.
 
 Skipping this produces a symptom pair specific enough to be diagnostic — **200 on
 `/data/mcp/mcp-readonly`, 403 on `/data/mcp/mcp`** — and it reads like a module fault when it is a

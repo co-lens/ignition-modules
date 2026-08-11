@@ -1,0 +1,41 @@
+# Pinned 8.3.7 gateway, for verifying the module actually installs and runs on its declared floor.
+#
+# Separate from docker/docker-compose.yml on purpose: that one tracks the rolling `8.3` tag and is
+# the day-to-day dev gateway. This one is pinned to the exact minimum version the module claims to
+# support, which is the only version that proves the claim.
+#
+# Ports and project name are both distinct from every other gateway on this machine, so bringing
+# this up cannot touch them.
+#
+# `docker compose -f ... restart` to pick up a rebuilt module. NEVER `up -d` on a running one:
+# nothing here is persisted, so recreating the container takes the projects, tags and API tokens
+# with it.
+name: mcp-test-837
+
+services:
+  ignition-gateway:
+    image: inductiveautomation/ignition:8.3.7
+    ports:
+      - 18300:8088
+      - 18301:8000
+    volumes:
+      # The UNSIGNED build: there are no signing credentials on this machine, and on 8.3 an
+      # unsigned module loads fine under the flag below. The cost is that it has no certificate
+      # fingerprint to remember, so it re-prompts for commissioning on every restart.
+      - ../../modules/mcp/build/Ignition-MCP.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
+    environment:
+      GATEWAY_ADMIN_PASSWORD: password
+      IGNITION_EDITION: standard
+      ACCEPT_IGNITION_EULA: Y
+      ALLOW_UNSIGNED_MODULES: "true"
+      # Deliberately no GATEWAY_MODULES_ENABLED: commissioning reads it as the COMPLETE list of
+      # modules to enable, so naming ours would disable Perspective and quarantine the rest.
+    command: >
+      -n mcp-test-837
+      -d
+      --
+      -Dignition.allowunsignedmodules=true
+      -Dia.developer.moduleupload=true
+      -Dmcp.trialWatchdog=true
+      -Dmcp.trialWatchdog.intervalSeconds=10
+      -Dmcp.designer.allowSave=true

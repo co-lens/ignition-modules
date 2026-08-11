@@ -68,9 +68,12 @@ by POSTing to the read-only endpoint and being answered.
 An **API token**, sent as `X-Ignition-API-Token: <keyId>:<secret>`. Ignition validates it before
 the module's handler runs, so there is no authentication code in this module at all.
 
-- **Read** — any valid token. Issued and revoked per client in **Config → Security → API Tokens**.
+- **Read** — any valid token. Issued and revoked per client in **Platform → Security → API Keys**.
 - **Write** — a token that additionally satisfies the gateway's write permission, which by default
-  means the `Administrator` role.
+  means the `Administrator` role. A token cannot hold that role — 8.3 ignores `Authenticated/Roles`
+  levels granted to an API key — so reaching the write endpoint requires a custom security level
+  added to the gateway's write permission. See
+  [Issue a credential](./quickstart.md#3-issue-a-credential).
 
 Both routes require the token to *validate*, on top of the permission check. That distinction
 matters more than it sounds: the gateway's `accessPermissions` property ships as an empty

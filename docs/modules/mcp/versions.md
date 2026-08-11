@@ -31,6 +31,8 @@ further is built. If you have a choice, use 8.3.
 | Minimum platform version | 8.3.7 (module 0.3.2+) | 8.1.43 (module 0.2.1+) |
 | Tool count | 56 | 56 — parity |
 | [`save_project`](./designer-save.md) permission pre-check | `canSaveProject` before the push | none — 8.1 exposes no equivalent, so the push is attempted and its failure reported |
+| New Perspective components | only the properties you set are written | Perspective seeds its own defaults as well |
+| Project files edited on disk | never picked up until `scan_resource_files` runs | the gateway also scans on its own |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
 
 **The tool sets match.** The ten tools that were 8.1-only-absent — the four tag configuration
@@ -55,6 +57,18 @@ to the 8.3 line*.
 Three differences in this document are forced by the platform rather than by anyone's choice:
 `scan_resource_files`'s `config` target, `save_project`'s missing permission pre-check, and the
 whole of the authentication split below. Everything else is a decision.
+
+Two more are Perspective's and Ignition's own behaviour, not this module's, and both were confirmed
+against 8.1.43 and 8.3.7 in August 2026:
+
+- **Component property seeding.** The same `perspective_add_component` call produces a different
+  file on each line: 8.1 writes Perspective's seeded defaults alongside your values, 8.3 writes only
+  what you set. Nothing here normalises that, so a view built by these tools is not byte-comparable
+  across the lines.
+- **Disk edits need a scan on 8.3.** 8.3 never re-reads `data/projects` by itself, so a file edited
+  underneath it — a git checkout, a hand edit — stays invisible until `scan_resource_files` runs.
+  8.1 picks such changes up on its own. On 8.3 this is not a nicety: without the scan the gateway
+  and the files have simply diverged.
 
 ## Why 8.1 authentication is weaker
 
