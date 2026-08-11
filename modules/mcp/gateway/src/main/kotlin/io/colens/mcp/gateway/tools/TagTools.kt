@@ -11,6 +11,7 @@ import com.inductiveautomation.ignition.common.tags.TagUtilities
 import com.inductiveautomation.ignition.common.tags.browsing.NodeDescription
 import com.inductiveautomation.ignition.common.tags.config.BasicTagConfiguration
 import com.inductiveautomation.ignition.common.tags.config.CollisionPolicy
+import com.inductiveautomation.ignition.common.tags.config.properties.WellKnownTagProps
 import com.inductiveautomation.ignition.common.tags.model.TagPath
 import com.inductiveautomation.ignition.common.tags.model.SecurityContext
 import com.inductiveautomation.ignition.common.tags.model.TagProvider
@@ -417,7 +418,7 @@ class TagTools(private val context: GatewayContext) {
             // should fail loudly, not overwrite whatever was there.
             val quality = tagProvider(path)
                 .saveTagConfigsAsync(
-                    listOf(BasicTagConfiguration.createRename(path, newName)),
+                    listOf(renameConfig(path, newName)),
                     CollisionPolicy.Abort,
                     SecurityContext.systemContext(),
                 )
@@ -574,6 +575,38 @@ class TagTools(private val context: GatewayContext) {
             ) { exportOf(path) }
         }
     }
+
+    /**
+     * The rename edit for [path], carrying the tag's own configuration with it.
+     *
+     * `BasicTagConfiguration.createRename` is `createEdit` plus a `Name` property and nothing else,
+     * which reads like a partial edit the provider will merge. It isn't: saving it moves the tag and
+     * leaves it with only `name` and `tagType`, dropping `dataType`, the value, history, alarms and
+     * every other property — reported as `Good`, on both 8.1.43 and 8.3.7. That silent loss is the
+     * whole reason this builds the config itself.
+     *
+     * The fix is to send the properties the tag already has, so the save has nothing to drop
+     * whether it merges or replaces. [TagConfigurationModel.getLocalConfiguration] is the right
+     * source: it excludes properties inherited from a UDT definition, which belong to the
+     * definition and would be wrongly baked into the instance if copied here.
+     *
+     * Falls back to the bare rename when the tag cannot be read. That is the pre-existing
+     * behaviour, and a rename that loses properties still beats refusing to rename at all — the
+     * pre-edit backup taken just before this covers the loss either way.
+     */
+    private fun renameConfig(path: TagPath, newName: String) =
+        runCatching {
+            tagProvider(path)
+                .getTagConfigsAsync(listOf(path), false, true)
+                .get(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .firstOrNull()
+                ?.localConfiguration
+                ?.let { local ->
+                    BasicTagConfiguration.createEdit(path, local).apply {
+                        set(WellKnownTagProps.Name, newName)
+                    }
+                }
+        }.getOrNull() ?: BasicTagConfiguration.createRename(path, newName)
 
     /**
      * The subtree at [path] in the shape `import_tags` accepts, so restoring is a call this module

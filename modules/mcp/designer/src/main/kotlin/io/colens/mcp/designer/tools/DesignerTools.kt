@@ -337,12 +337,16 @@ class DesignerTools(private val context: DesignerContext) {
                 // case where "a human reviews it" was doing real work, so it survives unattended.
                 val conflicts = onEdt { conflictingPaths() }
                 if (conflicts.isNotEmpty()) {
+                    // Deliberately does NOT send the caller to merge_gateway_changes. That tool
+                    // refuses on this same predicate, so in exactly this situation it is
+                    // guaranteed to refuse too — advice that reads as a fix and is a dead end.
+                    // Only a human choosing which edit wins gets out of here.
                     throw McpArgumentException(
                         "Refusing to save: ${conflicts.size} staged edit(s) conflict with changes " +
                             "waiting on the gateway. Saving would resolve that in this Designer's " +
-                            "favour without anyone looking. Call merge_gateway_changes first, or " +
-                            "ask the user to reconcile these in the Designer. Conflicting " +
-                            "resources: ${conflicts.joinToString(", ")}"
+                            "favour without anyone looking. merge_gateway_changes refuses on the " +
+                            "same conflict, so ask the user to save or discard these in the " +
+                            "Designer. Conflicting resources: ${conflicts.joinToString(", ")}"
                     )
                 }
 
