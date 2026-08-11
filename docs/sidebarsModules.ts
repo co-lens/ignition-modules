@@ -38,6 +38,7 @@ const sidebars: SidebarsConfig = {
         'mcp/tags',
         'mcp/performance',
         'mcp/designer-save',
+        'mcp/backups',
         'mcp/clients/remote-designer',
       ],
     },
