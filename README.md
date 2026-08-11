@@ -111,6 +111,31 @@ For every tool here, the names and arguments are identical to the 8.3 line, and 
 [tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools) on the 8.3 docs site
 is accurate for them, with the `save_project` caveat above; its endpoint/auth pages are not.
 
+## Pre-edit backups
+
+Before the module changes a tag's configuration or a Perspective view, it writes a copy of the
+prior state. **If that copy cannot be written, the edit does not happen** — a backup that silently
+fails is worse than none, because you would trust it. Nothing needs switching on.
+
+| Tool | What is copied | Restore with |
+| --- | --- | --- |
+| `configure_tags`, `delete_tags`, `rename_tag` | the affected tag subtrees | `import_tags` |
+| `import_tags` | the whole destination folder | `import_tags` |
+| the 13 `perspective_*` editing tools | the view's `view.json` | `write_resource` |
+
+One copy per target per session, not per call: editing a view twelve times leaves what it looked
+like before any of them. `write_tags` is deliberately **not** covered — it writes values, and a
+configuration export restores none of them.
+
+| Scope | Default location |
+| --- | --- |
+| Gateway (tags) | `<data dir>/mcp-backups/tags/` |
+| Designer (views) | `~/.ignition/mcp/backups/views/` |
+
+Override with `-Dmcp.backupDir=/some/path`. Capped at 500 files per category, oldest pruned first.
+Identical to the 8.3 line — the full write-up is on the
+[8.3 docs site](https://co-lens.github.io/ignition-modules/modules/mcp/backups).
+
 ## Build
 
 ```bash
