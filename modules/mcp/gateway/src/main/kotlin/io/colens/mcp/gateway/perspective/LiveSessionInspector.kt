@@ -2,6 +2,7 @@ package io.colens.mcp.gateway.perspective
 
 import com.codahale.metrics.Meter
 import com.codahale.metrics.Timer
+import com.inductiveautomation.ignition.common.functional.FragileRunnable
 import com.inductiveautomation.ignition.common.gson.JsonArray
 import com.inductiveautomation.ignition.common.gson.JsonObject
 import com.inductiveautomation.perspective.common.config.ComponentConfig
@@ -39,7 +40,25 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
     private fun context(): PerspectiveContext =
         perspective() ?: throw McpArgumentException("Perspective is not running on this gateway")
 
-    /** Sessions, serialized with Perspective's own Gson so the shape matches the status page. */
+    /**
+     * Sessions, serialized with Perspective's own Gson so the shape matches the status page.
+     *
+     * **With a fallback, because that serialization silently produces nothing on some versions.**
+     * `getSessionInfos` returns `PerspectiveSessionInfo`, and handing it to the shared Gson is the
+     * only way to read it — but on 8.1.43 every entry comes back as something that is not a JSON
+     * object, so each one was skipped and the tool reported `count: 0` against a gateway with a
+     * live session. It was reported at debug level and nowhere else, so the answer looked like a
+     * truthful "no sessions".
+     *
+     * That matters beyond this tool: `perspective_diagnose_live_view` needs a session id, and its
+     * own error text tells the caller to come here for one.
+     *
+     * So when the Gson path yields nothing and [liveSessions] finds sessions, this reports those
+     * instead, via [sessionIdentityJson]. Deliberately a fallback rather than a replacement: where
+     * the Gson path works it carries the richer status-page shape, and swapping it out wholesale
+     * would drop fields callers may already read. The fallback shape is a subset, and only ever
+     * appears where the alternative was an empty list.
+     */
     fun listSessions(projectFilter: String?): JsonObject {
         val ctx = context()
         val gson = ctx.sharedGson
@@ -58,6 +77,20 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
             sessions.add(json)
         }
 
+        if (sessions.size() == 0) {
+            liveSessions(monitor).forEach { session ->
+                val project = runCatching { session.projectName }.getOrNull()
+                if (projectFilter != null && project != projectFilter) return@forEach
+                sessions.add(sessionIdentityJson(session, project))
+            }
+            if (sessions.size() > 0) {
+                logger.debug(
+                    "Session info did not serialize; reported {} session(s) from the live monitor.",
+                    sessions.size(),
+                )
+            }
+        }
+
         return jsonObject {
             put("count", sessions.size())
             put("pageCount", monitor.pageCount)
@@ -69,17 +102,48 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
     }
 
     /**
+     * Enough of a session to identify it and act on it — above all the `sessionId` the other live
+     * tools take. Key names match [sessionJson] so the two tools agree on what a session is called.
+     */
+    private fun sessionIdentityJson(session: InternalSession, project: String?): JsonObject =
+        jsonObject {
+            put("sessionId", runCatching { session.sessionId?.toString() }.getOrNull())
+            put("project", project)
+            put("running", runCatching { session.isRunning }.getOrNull())
+            put("uptimeSeconds", runCatching { session.getUptime(TimeUnit.SECONDS) }.getOrNull())
+            put("lastCommSeconds", runCatching { session.getLastComm(TimeUnit.SECONDS) }.getOrNull())
+            put("pageCount", runCatching { session.pageCount }.getOrNull())
+            put("viewCount", runCatching { session.viewCount }.getOrNull())
+            put("componentCount", runCatching { session.componentCount }.getOrNull())
+        }
+
+    /**
      * Walks a running view and reports, for every configured property, its binding and its
      * **current value and quality**.
      *
      * Perspective surfaces binding failures as quality overlays rather than exceptions, so a bad
      * quality next to the binding that produced it is usually the entire diagnosis.
+     *
+     * **The walk runs on the session's own execution queue, and must.** `PropertyTree.read` opens
+     * with `ExecutionQueue.requireInQueue()`, so reading a live value from a request thread throws
+     * every time. [walk] caught that and recorded null, which turned the whole point of this tool —
+     * value, quality, `qualityGood`, timestamp — into four nulls on every property, on both 8.1.43
+     * and 8.3.7. `badQualityCount` counts `qualityGood == false`, so it could never report anything
+     * but zero: a view visibly showing a bad-quality overlay was reported as clean.
+     *
+     * [pagesJson] deliberately refuses to touch this queue, and that is still right for a
+     * *counting* tool: the sessions worth measuring are the backed-up ones, and it would block on
+     * exactly those. Here the live read is the tool, so instead of avoiding the queue this bounds
+     * the wait — a session too busy to answer within [QUEUE_TIMEOUT_SECONDS] reports the binding
+     * wiring it already has, says so in `note`, and returns.
      */
     fun diagnoseView(sessionId: String, viewFilter: String?): JsonObject {
         val session = findSession(sessionId)
+        val queue = runCatching { session.queue() }.getOrNull()
 
         val views = JsonArray()
         var badCount = 0
+        var timedOut = false
 
         session.pages.forEach { page ->
             page.views.forEach { view ->
@@ -88,8 +152,18 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
 
                 val properties = JsonArray()
                 try {
-                    walk(view.config?.root, view.rootContainer, "root", properties)
+                    // Named FragileRunnable rather than a bare lambda: runOrSubmit is overloaded
+                    // with FragileSupplier, and a Unit-returning lambda can pick either.
+                    val walkView = FragileRunnable<Throwable> {
+                        walk(view.config?.root, view.rootContainer, "root", properties)
+                    }
+                    if (queue == null) {
+                        walkView.run()
+                    } else {
+                        queue.runOrSubmit(walkView).get(QUEUE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    }
                 } catch (t: Throwable) {
+                    timedOut = true
                     logger.debug("Could not walk view {}: {}", viewPath, t.toString())
                 }
 
@@ -114,6 +188,14 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
             put("views", views)
             if (views.size() == 0) {
                 put("note", "No open views matched. Sessions only hold views that are currently displayed.")
+            } else if (timedOut) {
+                put(
+                    "note",
+                    "At least one view could not be read on the session's execution queue within " +
+                        "$QUEUE_TIMEOUT_SECONDS seconds, so its values and qualities are null. " +
+                        "A session that busy is itself the finding — check queueDepth with " +
+                        "perspective_session_performance.",
+                )
             }
         }
     }
@@ -303,6 +385,15 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
 
     private companion object {
         val SORT_KEYS = listOf("queueDepth", "uptime", "bindings", "scriptTime")
+
+        /**
+         * How long to wait for a session's execution queue to run a view walk.
+         *
+         * Short on purpose. This queue carries the session's real work, so a diagnostic waiting on
+         * it is competing with the user's own screen; a session that cannot answer in this long is
+         * one whose backlog is the thing worth reporting.
+         */
+        const val QUEUE_TIMEOUT_SECONDS = 5L
     }
 
     private class SessionSample(
@@ -352,6 +443,9 @@ class LiveSessionInspector(private val perspective: () -> PerspectiveContext?) {
             val live = try {
                 component?.getPropertyTreeOf(key.scope)?.read(key.path)?.orElse(null)
             } catch (t: Throwable) {
+                // Was silent, which is how an off-queue read failing on every single property
+                // looked exactly like a view with nothing bound.
+                logger.debug("Could not read {} on {}: {}", key, path, t.toString())
                 null
             }
 

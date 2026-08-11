@@ -341,11 +341,13 @@ class DesignerTools(private val context: DesignerContext) {
                 val conflicts = onEdt { conflictingPaths() }
                 if (conflicts.isNotEmpty()) {
                     throw McpArgumentException(
+                        // Deliberately does NOT send the caller to merge_gateway_changes: it
+                        // refuses on this same predicate, so here it is guaranteed to refuse too.
                         "Refusing to save: ${conflicts.size} staged edit(s) conflict with changes " +
                             "waiting on the gateway. Saving would resolve that in this Designer's " +
-                            "favour without anyone looking. Call merge_gateway_changes first, or " +
-                            "ask the user to reconcile these in the Designer. Conflicting " +
-                            "resources: ${conflicts.joinToString(", ")}"
+                            "favour without anyone looking. merge_gateway_changes refuses on the " +
+                            "same conflict, so ask the user to save or discard these in the " +
+                            "Designer. Conflicting resources: ${conflicts.joinToString(", ")}"
                     )
                 }
 
