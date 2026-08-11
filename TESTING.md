@@ -398,10 +398,27 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:18400/data/mcp
 - **The 2-hour trial.** Both gateways run the trial watchdog (`-Dmcp.trialWatchdog=true`,
   10s interval), so they should reset themselves. If one stops mid-test, `reset_trial` is a tool.
 
-- **`docker compose down` on these is fine** — they are throwaway. Doing it to any of the other five
+- **`docker compose down` on these is fine** — they are throwaway. Doing it to any of the other
   gateways on this machine is not.
 
-## Tearing down
+## Between passes: stop, don't down
+
+`stop` is what you want after a pass. It keeps the containers, and with them everything that was
+expensive to set up: the 8.3 API key, the `McpWrite` security level and the gateway write permission
+that references it, the projects, and the tags. `start` picks up where you left off.
+
+```bash
+docker compose -f docker/testing/docker-compose.8.3.7.yml stop
+docker compose -f docker/testing/docker-compose.8.1.43.yml stop
+# later
+docker compose -f docker/testing/docker-compose.8.3.7.yml start
+```
+
+`down` destroys the containers, and there is no data volume — so it throws all of that away and the
+next pass starts by creating an API key through the gateway UI again, which needs an interactive
+login. Do it only when you want a genuinely clean floor gateway.
+
+## Tearing down for real
 
 ```bash
 docker compose -f docker/testing/docker-compose.8.3.7.yml down
