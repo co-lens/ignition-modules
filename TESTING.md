@@ -435,10 +435,19 @@ Two loose ends, neither a test failure:
   tools staging rather than committing, so the Designer's own revert is the safety net.
 - `meta` is unreachable except through `name`, so tooltips cannot be set at all.
 
-## What ships next
+## What shipped
 
-Nothing is released for either the guard rails or wave 4/5 on 8.1 beyond 0.2.5. With this pass
-green, cut `mcp-v0.3.3` and `mcp81-v0.2.6` so the backups and the four fixes above ship.
+**`mcp-v0.3.3` and `mcp81-v0.2.6`, both on 2026-08-11**, carrying the pre-edit backups, wave 4/5 on
+the 8.1 line, and the four fixes above. Those were the first releases gated on this pass.
+
+Cutting them differs per line, which is easy to get backwards:
+
+- **8.3** — push `main`, then push a `mcp-v<version>` tag. The version comes from the tag.
+- **8.1** — bump `modules/mcp/VERSION`, then push `8.1/main`. The workflow triggers on the *branch
+  push*, not a tag, and creates the tag itself. So any push to that branch attempts a release:
+  bump the version in the same push, or it fails on "release already exists".
+
+See [Releasing](docs/content/contributing/releasing.md).
 
 `next.md` — the five-wave port plan this pass was verifying — was deleted when the pass finished,
 as it said to. Its two facts that outlived it are in
