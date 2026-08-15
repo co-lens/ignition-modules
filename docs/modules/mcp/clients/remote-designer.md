@@ -16,6 +16,22 @@ remotely — two JVM arguments on the Designer opt out of that:
 
 Both default to the safe behaviour, and the module logs a warning when you widen the bind.
 
+:::note A pinned port is one per machine
+The OS-assigned default is what lets several Designers coexist — each takes a free port and writes
+its own `designer-<pid>.json`. Pin a port only when something needs to forward or firewall it.
+
+A second Designer inherits the same JVM arguments from the launcher, so it asks for the same pinned
+port and can't have it. Rather than lose its endpoint, it warns and takes an OS-assigned port:
+
+```
+WARN  mcp.Designer.Http -- Port 8770 (-Dmcp.designer.port) is already in use, most likely by
+      another Designer on this machine. Fell back to OS-assigned port 41337. ...
+```
+
+So a forwarded port reaches whichever Designer started **first**. For the others, read the real
+address off **Tools → MCP Connection Info…**, or pin genuinely different ports per Designer.
+:::
+
 :::warning Set every argument you need in one go — they replace, they don't accumulate
 The launcher's JVM-argument field is a single value. Adding `-Dmcp.designer.allowSave=true` to a
 Designer that already had `-Dmcp.designer.bindAddress=0.0.0.0` **replaces** it unless you type both,

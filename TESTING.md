@@ -319,12 +319,25 @@ bridge**, not on the gateway endpoint — `call81 list_pending_changes` cannot w
 address from **Tools → MCP Connection Info…**.
 
 `-Dmcp.designer.allowSave=true` belongs on the **Designer**, not the gateway. Set every argument you
-need in one value, since the launcher's field replaces rather than appends, and give each Designer
-its own port when running two:
+need in one value, since the launcher's field replaces rather than appends:
 
 ```
 -Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.port=8770;-Dmcp.designer.allowSave=true
 ```
+
+**Don't pin the port to run two Designers.** The default is OS-assigned and already handles two —
+`-Dmcp.designer.port` exists for forwarding or firewalling, and the launcher hands the *same* value
+to every Designer of that application. A second Designer asking for a taken port now warns and falls
+back rather than dying, so if you do run two with the line above, expect this on the second one and
+take its address from **Tools → MCP Connection Info…**:
+
+```
+WARN  mcp.Designer.Http -- Port 8770 (-Dmcp.designer.port) is already in use ... Fell back to
+      OS-assigned port 41337.
+```
+
+**Fail if** the second Designer logs `java.net.BindException` and its connect dialog reports the
+endpoint is not running — that is the regression this replaced.
 
 Then, against the bridge:
 

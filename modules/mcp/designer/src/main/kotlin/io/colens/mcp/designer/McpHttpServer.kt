@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpServer
 import io.colens.mcp.common.McpHttpRequest
 import io.colens.mcp.common.McpServer
 import org.slf4j.LoggerFactory
+import java.net.BindException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
@@ -51,6 +52,10 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
      * -Dmcp.designer.port=8770
      * ```
      *
+     * A pinned port is best-effort: it is honoured when free, and degraded to an OS-assigned port
+     * with a warning when it isn't. A second Designer on the same machine inherits the same JVM
+     * arguments from the launcher, and losing its endpoint entirely is the worse failure.
+     *
      * Binding beyond loopback exposes the endpoint to anything that can route to this machine.
      * The bearer secret is then the only thing protecting it, so this is opt-in, logged loudly,
      * and should be paired with a firewall rule or a forwarded port rather than left wide open.
@@ -67,7 +72,7 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
             InetSocketAddress(InetAddress.getByName(requestedHost), requestedPort)
         }
 
-        val http = HttpServer.create(address, 0)
+        val http = createServer(address, requestedPort)
         http.createContext(path) { exchange -> handle(exchange) }
         http.executor = Executors.newFixedThreadPool(4) { runnable ->
             Thread(runnable, "mcp-designer-http").apply { isDaemon = true }
@@ -94,6 +99,37 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
             )
         }
         return http.address.port
+    }
+
+    /**
+     * Binds [address], falling back to an OS-assigned port if a pinned one is taken.
+     *
+     * The usual cause is a second Designer on this machine: the launcher's JVM-argument field is a
+     * single value per application, so both Designers carry the same `-Dmcp.designer.port` and the
+     * second one used to die here with a bare `BindException` and no endpoint at all. Falling back
+     * keeps it working; the warning is what tells anyone forwarding the pinned port that this
+     * Designer is not the one behind it.
+     */
+    private fun createServer(address: InetSocketAddress, requestedPort: Int): HttpServer {
+        try {
+            return HttpServer.create(address, 0)
+        } catch (e: BindException) {
+            // Nothing to fall back to: the OS had no free port at all, which is a real failure.
+            if (requestedPort == 0) throw e
+
+            val fallback = HttpServer.create(InetSocketAddress(address.address, 0), 0)
+            logger.warn(
+                "Port {} (-D{}) is already in use, most likely by another Designer on this " +
+                    "machine. Fell back to OS-assigned port {}. Anything forwarding or " +
+                    "firewalling {} will not reach THIS Designer — see Tools -> MCP Connection " +
+                    "Info... for its real address.",
+                requestedPort,
+                PORT_PROPERTY,
+                fallback.address.port,
+                requestedPort,
+            )
+            return fallback
+        }
     }
 
     private fun isLoopback(host: String): Boolean =
@@ -167,7 +203,10 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         /** Opt in to binding beyond loopback, e.g. `0.0.0.0` for a Designer in a VM. */
         const val BIND_ADDRESS_PROPERTY = "mcp.designer.bindAddress"
 
-        /** Pin the port so it can be forwarded or firewalled. Defaults to OS-assigned. */
+        /**
+         * Pin the port so it can be forwarded or firewalled. Defaults to OS-assigned, and falls
+         * back to it — with a warning — when the pinned port is already taken.
+         */
         const val PORT_PROPERTY = "mcp.designer.port"
     }
 }

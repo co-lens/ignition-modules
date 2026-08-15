@@ -146,10 +146,14 @@ OS-assigned port and writes `~/.ignition/mcp/designer-<pid>.json` (mode 0600) co
 and a per-session bearer secret. **Tools → MCP Connection Info…** shows the ready-to-paste command:
 
 ```bash
-claude mcp add --transport http ignition-designer \
+claude mcp add --transport http ignition-designer-<project> \
   http://127.0.0.1:<port>/mcp \
   --header "Authorization: Bearer <secret>"
 ```
+
+The server name carries the project so that a second Designer's command **adds** a server rather
+than overwriting the first one's entry. Several Designers can run at once: each gets its own port,
+its own secret and its own discovery file.
 
 This is identical on both platform lines — the bridge runs its own server and never touches
 Ignition's authentication, which is why the 8.1 port needed no Designer changes.

@@ -33,6 +33,23 @@ class ConnectDialog(
         addActionListener { showDialog() }
     }
 
+    /**
+     * The name the client registers this endpoint under, suffixed with the project so a second
+     * Designer's command adds a server rather than overwriting the first one's.
+     *
+     * Two Designers on the *same* project still collide. The dialog prints the discovery-file path,
+     * which carries the PID, so that is the tie-break — a PID in the server name would change on
+     * every restart and leave the client full of dead entries.
+     */
+    private fun clientName(): String {
+        val slug = context.projectName
+            ?.lowercase()
+            ?.replace(Regex("[^a-z0-9]+"), "-")
+            ?.trim('-')
+            ?.takeIf { it.isNotEmpty() }
+        return if (slug == null) BASE_CLIENT_NAME else "$BASE_CLIENT_NAME-$slug"
+    }
+
     private fun showDialog() {
         val current = endpoint()
         if (current == null) {
@@ -46,7 +63,7 @@ class ConnectDialog(
         }
 
         val command = buildString {
-            append("claude mcp add --transport http ignition-designer ")
+            append("claude mcp add --transport http ${clientName()} ")
             append("http://${current.host}:${current.port}/mcp ")
             append("--header \"Authorization: Bearer ${current.secret}\"")
         }
@@ -89,5 +106,9 @@ class ConnectDialog(
             "Ignition MCP — Designer connection",
             JOptionPane.PLAIN_MESSAGE,
         )
+    }
+
+    private companion object {
+        const val BASE_CLIENT_NAME = "ignition-designer"
     }
 }

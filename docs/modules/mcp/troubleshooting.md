@@ -144,6 +144,18 @@ The Designer bridge is a separate endpoint from the gateway's, with its own cred
 3. If your client isn't on the same machine as the Designer, the bridge binds to loopback by
    default. See [Reaching a Designer on another machine](./clients/remote-designer.md).
 
+**With a second Designer open**, both endpoints run — each takes its own port, secret and discovery
+file. The connect command is named after the project (`ignition-designer-<project>`) so adding the
+second doesn't overwrite the first. If you pinned `-Dmcp.designer.port`, the second Designer can't
+have that port and warns that it fell back to an OS-assigned one; take its real address from the
+connect dialog.
+
+**On `java.net.BindException: Address already in use`** in the Designer console, a port is pinned
+somewhere. The default is OS-assigned and cannot collide, so check *both* JVM-argument fields in
+`~/.ignition/clientlauncher-data/designer-launcher.json` — the global
+`global.client.defaults.jvm.arguments` **and** the per-application `applications[].jvm.arguments`.
+Clearing one leaves the other in force.
+
 **On a bare "connection refused"**, don't assume a dead port. A loopback bind produces exactly the
 same error from another machine. The tell is the connect dialog reading `127.0.0.1`, or
 `"loopbackOnly": true` in `~/.ignition/mcp/designer-<pid>.json` on the Designer's own machine — see
