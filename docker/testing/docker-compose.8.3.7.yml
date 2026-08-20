@@ -28,14 +28,22 @@ services:
       IGNITION_EDITION: standard
       ACCEPT_IGNITION_EULA: Y
       ALLOW_UNSIGNED_MODULES: "true"
+      # Reaches RUNNING unattended instead of parking in COMMISSIONING. Needed here because the
+      # module is unsigned and so has no fingerprint the gateway can remember across restarts.
+      # commission.sh is the older route and does not work on 8.3.7 — its /post-step payload
+      # comes back 400.
+      ACCEPT_MODULE_CERTS: io.colens.mcp-ign
       # Deliberately no GATEWAY_MODULES_ENABLED: commissioning reads it as the COMPLETE list of
       # modules to enable, so naming ours would disable Perspective and quarantine the rest.
+    # -Dmcp.devMode=true replaces the -Dmcp.trialWatchdog and -Dmcp.designer.allowSave flags that
+    # used to be here — it implies both — and additionally opens both MCP endpoints, so the manual
+    # pass in TESTING.md no longer needs an API key created in the UI. The interval below is kept
+    # separately because devMode implies the watchdog, not its cadence.
     command: >
       -n mcp-test-837
       -d
       --
       -Dignition.allowunsignedmodules=true
       -Dia.developer.moduleupload=true
-      -Dmcp.trialWatchdog=true
+      -Dmcp.devMode=true
       -Dmcp.trialWatchdog.intervalSeconds=10
-      -Dmcp.designer.allowSave=true

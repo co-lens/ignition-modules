@@ -16,8 +16,6 @@ import io.colens.mcp.common.perspective.newComponentNode
 import io.colens.mcp.common.perspective.PerspectiveComponentCatalog
 import io.colens.mcp.common.perspective.PerspectiveReadTools
 import io.colens.mcp.common.Severity
-import io.colens.mcp.common.SnapshotStore
-import io.colens.mcp.designer.DiscoveryFile
 import io.colens.mcp.common.perspective.ViewDocument
 import io.colens.mcp.common.perspective.ViewSource
 import io.colens.mcp.common.perspective.ViewValidator
@@ -26,9 +24,6 @@ import io.colens.mcp.common.put
 import io.colens.mcp.common.requireString
 import io.colens.mcp.common.schema
 import io.colens.mcp.designer.perspective.DesignerViewSource
-
-/** Under `~/.ignition/mcp`, beside the discovery file the Designer bridge already writes. */
-private const val BACKUP_DIR = "backups"
 
 /**
  * Surgical Perspective editing, staged in the open Designer.
@@ -44,15 +39,6 @@ class PerspectiveEditTools(private val context: DesignerContext) {
     private val catalog: ComponentCatalog = PerspectiveComponentCatalog { designerRegistry() }
     private val source: ViewSource = DesignerViewSource(context)
     private val validator = ViewValidator(catalog)
-
-    /**
-     * Pre-edit copies of every view this touches. Rooted alongside the discovery file rather than
-     * in the gateway's data directory: these are written by the Designer, on whichever machine it
-     * is running, and that machine's home directory is the only place both scopes agree exists.
-     */
-    private val snapshots = SnapshotStore(rootProvider = {
-        SnapshotStore.resolveRoot { DiscoveryFile.defaultDirectory().resolve(BACKUP_DIR) }
-    })
 
     /**
      * Perspective's Designer-side registry. `DesignerComponentRegistry` extends the common
@@ -101,15 +87,6 @@ class PerspectiveEditTools(private val context: DesignerContext) {
         val viewPath = args.requireString("view")
 
         val doc = source.read(project, viewPath)
-
-        // Before edit(doc) mutates it in place — afterwards the prior state is gone. Keyed on the
-        // view, so the copy kept is what the view looked like before this session first touched
-        // it, not before the most recent of twelve component tweaks.
-        snapshots.snapshotOnce(
-            key = "view:$project:$viewPath",
-            category = SnapshotStore.VIEWS,
-            label = "$project-${viewPath.replace('/', '-')}",
-        ) { doc.toJsonString() }
 
         edit(doc)
 

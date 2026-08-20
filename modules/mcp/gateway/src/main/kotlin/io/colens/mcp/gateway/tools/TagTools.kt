@@ -19,7 +19,6 @@ import com.inductiveautomation.ignition.common.tags.paths.parser.TagPathParser
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
 import io.colens.mcp.common.McpArgumentException
 import io.colens.mcp.common.McpJson
-import io.colens.mcp.common.SnapshotStore
 import io.colens.mcp.common.Severity
 import io.colens.mcp.common.Tool
 import io.colens.mcp.common.findingsJson
@@ -41,16 +40,6 @@ import io.colens.mcp.common.toJsonValue
 import java.util.concurrent.TimeUnit
 
 class TagTools(private val context: GatewayContext) {
-
-    /**
-     * Pre-edit backups for the four tools that change tag *configuration*.
-     *
-     * The lambda is not evaluated here: the documentation generator constructs this class against a
-     * stub context and fails the build if construction touches it.
-     */
-    private val snapshots = SnapshotStore(rootProvider = {
-        SnapshotStore.resolveRoot { context.systemManager.dataDir.toPath().resolve(BACKUP_DIR) }
-    })
 
     fun tools(): List<Tool> = listOf(
         listTagProviders(),
@@ -314,13 +303,6 @@ class TagTools(private val context: GatewayContext) {
                     }
                 }
 
-                // After validation, before the write: a payload that was going to be rejected
-                // anyway does not deserve a backup, and the write must not happen if one fails.
-                backup(
-                    configs.mapNotNull { it.get("name")?.takeIf { n -> n.isJsonPrimitive }?.asString }
-                        .map { tagPath("$parentPath/$it", null) }
-                )
-
                 val qualities = provider
                     .saveTagConfigsAsync(tagConfigs, policy, SecurityContext.systemContext())
                     .get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -361,10 +343,6 @@ class TagTools(private val context: GatewayContext) {
         destructive = true,
         handler = { args ->
             val paths = args.requireStringList("paths").map { tagPath(it, null) }
-
-            // The description says this cannot be undone from here. With the backup it can: the
-            // file this writes is an import_tags payload for the whole subtree.
-            backup(paths)
 
             // Same index-preserving grouping as write_tags: one call per provider, results
             // written back into the caller's original order.
@@ -411,8 +389,6 @@ class TagTools(private val context: GatewayContext) {
                         "such as / \\ . [ ] — pass a name, not a path."
                 )
             }
-
-            backup(listOf(path))
 
             // Abort rather than the usual default: renaming onto a name that is already taken
             // should fail loudly, not overwrite whatever was there.
@@ -473,10 +449,6 @@ class TagTools(private val context: GatewayContext) {
             val parentPath = tagPath(args.requireString("parentPath"), null)
             val json = args.requireString("json")
             val policy = collisionPolicy(args.optString("collisionPolicy"))
-
-            // The whole destination folder, because an import can create, overwrite or merge
-            // anything beneath it and the payload alone does not say which.
-            backup(listOf(parentPath))
 
             val qualities = tagProvider(parentPath)
                 .importTagsAsync(parentPath, json, IMPORT_FORMAT, policy, SecurityContext.systemContext())
@@ -559,24 +531,6 @@ class TagTools(private val context: GatewayContext) {
     }
 
     /**
-     * Backs up every path a config-changing tool is about to touch, and throws if it cannot.
-     *
-     * Deliberately **not** applied to `write_tags`. That writes tag *values*, and a configuration
-     * export restores none of them — offering a backup there would be a promise this cannot keep.
-     * Live process values are not recoverable from this module at all, which is worth knowing
-     * before calling it rather than after.
-     */
-    private fun backup(paths: List<TagPath>) {
-        paths.distinctBy { it.toString() }.forEach { path ->
-            snapshots.snapshotOnce(
-                key = "tag:$path",
-                category = SnapshotStore.TAGS,
-                label = path.toString(),
-            ) { exportOf(path) }
-        }
-    }
-
-    /**
      * The rename edit for [path], carrying the tag's own configuration with it.
      *
      * `BasicTagConfiguration.createRename` is `createEdit` plus a `Name` property and nothing else,
@@ -591,8 +545,7 @@ class TagTools(private val context: GatewayContext) {
      * definition and would be wrongly baked into the instance if copied here.
      *
      * Falls back to the bare rename when the tag cannot be read. That is the pre-existing
-     * behaviour, and a rename that loses properties still beats refusing to rename at all — the
-     * pre-edit backup taken just before this covers the loss either way.
+     * behaviour, and a rename that loses properties still beats refusing to rename at all.
      */
     private fun renameConfig(path: TagPath, newName: String) =
         runCatching {
@@ -607,27 +560,6 @@ class TagTools(private val context: GatewayContext) {
                     }
                 }
         }.getOrNull() ?: BasicTagConfiguration.createRename(path, newName)
-
-    /**
-     * The subtree at [path] in the shape `import_tags` accepts, so restoring is a call this module
-     * already offers rather than a Designer round trip.
-     *
-     * Always the wrapped `{"tags": [...]}` form: `import_tags` takes either, and one shape means a
-     * restore never depends on how many tags happened to be under the path.
-     *
-     * Null when the provider returns nothing — a tag being created for the first time has no prior
-     * state, which is not a failure and must not block the write.
-     */
-    private fun exportOf(path: TagPath): String? {
-        val models = tagProvider(path)
-            .getTagConfigsAsync(listOf(path), true, false)
-            .get(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        if (models.isEmpty()) return null
-
-        val configs = JsonArray()
-        models.forEach { configs.add(TagUtilities.toJsonObject(it)) }
-        return McpJson.toPrettyString(jsonObject { put("tags", configs) })
-    }
 
     private fun tagPath(raw: String?, provider: String?): TagPath {
         val text = raw.orEmpty()
@@ -676,8 +608,6 @@ class TagTools(private val context: GatewayContext) {
 
     private companion object {
         const val DEFAULT_PROVIDER = "default"
-        /** Under the gateway data directory, so backups travel with a gateway backup. */
-        const val BACKUP_DIR = "mcp-backups"
 
         const val READ_TIMEOUT_SECONDS = 30L
         const val WRITE_TIMEOUT_SECONDS = 30L

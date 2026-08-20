@@ -2,6 +2,7 @@ package io.colens.mcp.designer
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpHttpRequest
 import io.colens.mcp.common.McpServer
 import org.slf4j.LoggerFactory
@@ -23,6 +24,10 @@ import java.util.concurrent.ThreadPoolExecutor
  * `Authorization: Bearer <secret>` where the secret is generated per Designer session and written
  * to an owner-readable file. Origin checking happens inside [McpServer]. [start] documents the
  * opt-in for binding wider, which trades that first line of defence for reachability.
+ *
+ * `-Dmcp.devMode=true` drops the bearer requirement entirely. The secret is still generated and
+ * still written to the discovery file, so the command [ConnectDialog] shows keeps working — it
+ * just stops being checked.
  */
 class McpHttpServer(private val mcp: McpServer, private val secret: String) {
 
@@ -81,6 +86,17 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         server = http
         boundHost = requestedHost ?: "127.0.0.1"
         loopbackOnly = requestedHost == null || isLoopback(requestedHost)
+
+        if (DevMode.enabled()) {
+            logger.warn(
+                "{} is set: the Designer MCP endpoint on {}:{} accepts requests with no " +
+                    "Authorization header at all, and its Origin allowlist is off. Anything that " +
+                    "can reach this port can read and edit this Designer's project.",
+                DevMode.PROPERTY,
+                boundHost,
+                http.address.port,
+            )
+        }
 
         if (!loopbackOnly) {
             logger.warn(
@@ -176,6 +192,7 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
     }
 
     private fun isAuthorized(exchange: HttpExchange): Boolean {
+        if (DevMode.enabled()) return true
         val header = exchange.requestHeaders.getFirst("Authorization") ?: return false
         if (!header.startsWith(BEARER_PREFIX, ignoreCase = true)) return false
         val presented = header.substring(BEARER_PREFIX.length).trim()

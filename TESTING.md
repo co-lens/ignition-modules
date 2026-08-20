@@ -60,12 +60,26 @@ read : test-read-0123456789abcdef0123456789abcdef
 write: test-write-0123456789abcdef0123456789abcdef
 ```
 
-**8.3.7 needs an API key**, created in the gateway UI at http://localhost:18300 (log in
-`admin`/`password`). Done once on 2026-08-11; a container *recreate* loses it, a restart does not.
+**8.3.7 needs nothing either, now.** Its compose file passes `-Dmcp.devMode=true`, which opens both
+endpoints, so there is no API key to create and no `McpWrite` security level to wire up. That also
+means a container *recreate* costs nothing here any more.
 
-The Administrator role **cannot** be granted to an API key — 8.3 ignores `Authenticated/Roles`
-levels on keys, so a default gateway's write endpoint is unreachable by any key (read 200,
-write 403). The working procedure, verified on 8.3.7:
+```bash
+call() {  # call <tool> <json-args>
+  curl -s --max-time 60 -X POST http://localhost:18300/data/mcp/mcp \
+    -H 'Content-Type: application/json' \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" \
+    | python3 -m json.tool
+}
+```
+
+<details>
+<summary>The token procedure, for testing the <em>authenticated</em> path deliberately</summary>
+
+Drop `-Dmcp.devMode=true` from `docker/testing/docker-compose.8.3.7.yml` and restart. The
+Administrator role **cannot** be granted to an API key — 8.3 ignores `Authenticated/Roles` levels on
+keys, so a default gateway's write endpoint is unreachable by any key (read 200, write 403). The
+working procedure, verified on 8.3.7:
 
 1. **Platform → Security → Levels**: select `Authenticated` → Add Level → `McpWrite` → Save.
 2. **Platform → Security → General Settings → Roles & Permissions**: tick `McpWrite` under
@@ -73,17 +87,9 @@ write 403). The working procedure, verified on 8.3.7:
 3. **Platform → Security → API Keys → Create API Key**: untick *Require secure connections*,
    tick `McpWrite`. The secret shows once.
 
-Then:
+Then add `-H "X-Ignition-API-Token: $TOK"` back to `call()`.
 
-```bash
-export TOK='<keyId>:<secret>'
-call() {  # call <tool> <json-args>
-  curl -s --max-time 60 -X POST http://localhost:18300/data/mcp/mcp \
-    -H 'Content-Type: application/json' -H "X-Ignition-API-Token: $TOK" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" \
-    | python3 -m json.tool
-}
-```
+</details>
 
 The 8.1 equivalent, which needs no setup:
 
@@ -110,7 +116,7 @@ call81() {
 
 # The tests
 
-Ordered by risk. Stop at the end of §3 if time is short — that is where the unverified behaviour is
+Ordered by risk. Stop at the end of §2 if time is short — that is where the unverified behaviour is
 concentrated.
 
 ## 1. Tag configuration — the highest-risk area
@@ -186,49 +192,7 @@ call write_tags '{"writes":[{"path":"[default]TestPump","value":42.5}]}'   # ok 
 call write_tags '{"writes":[{"path":"[default]NoSuchTag","value":1}]}'     # ok false, not a crash
 ```
 
-## 2. Pre-edit backups — never run at all
-
-The newest code, unreleased on both lines.
-
-### 2a. A backup appears before a tag edit
-
-```bash
-docker exec mcp-test-837-ignition-gateway-1 ls -la /usr/local/bin/ignition/data/mcp-backups/tags/
-```
-
-Run any tool from §1, then look again. **Expect** one new file, named with a UTC timestamp and the
-tag path, containing a `{"tags":[...]}` payload.
-
-### 2b. One copy per target per session
-
-Edit the *same* tag three more times. **Expect the file count not to change** — the copy kept is
-the state before the session first touched it.
-
-### 2c. It fails closed
-
-This is the property the whole design rests on, so it is worth breaking on purpose:
-
-```bash
-docker exec -u root mcp-test-837-ignition-gateway-1 chmod 000 /usr/local/bin/ignition/data/mcp-backups/tags
-call delete_tags '{"paths":["[default]TestPump2"]}'
-```
-
-**Expect** an error containing *"Refusing to proceed"* and *"Nothing was changed"*, and the tag
-still present afterwards. Then put it back:
-
-```bash
-docker exec -u root mcp-test-837-ignition-gateway-1 chmod 755 /usr/local/bin/ignition/data/mcp-backups/tags
-```
-
-**Fail if** the delete succeeded, or succeeded with a warning. A backup that silently does not
-happen is the exact failure this is meant to prevent.
-
-### 2d. Restoring actually works
-
-Take a backup file from 2a and feed it back through `import_tags` after deleting the tag. The point
-of writing them in that shape is that recovery needs no Designer.
-
-## 3. Perspective — the wave 4 consolidation
+## 2. Perspective — the wave 4 consolidation
 
 Wave 4 touched `ViewValidator` and `PerspectiveComponentCatalog`, both shared with the 19
 Perspective tools that already worked. The unit tests cover the logic; nothing covers the Designer.
@@ -245,13 +209,9 @@ JVM debug ports. Then through the Designer bridge (**Tools → MCP Connection In
    array, so this proves nothing on its own** — force a finding first, e.g. `perspective_set_binding`
    with `"type":"notarealbindingtype"`, which yields an `unknown_binding_type` warning carrying both
    fields.
-5. Check `~/.ignition/mcp/backups/views/` (on the machine running the **Designer**, so
-   `%USERPROFILE%\.ignition\mcp\backups\views\` on Windows) for one snapshot of the view, not one
-   per edit. **Expect one file per Designer *process*** — two Designers on the same host editing the
-   same view leave two files, which is correct, not a leak. Each must contain the view as it was
-   before that session's first edit: `perspective_create_view` takes no snapshot (there is nothing
-   to preserve), so a view created and then edited in one session snapshots as a bare `root` with no
-   children. A file showing the *current* view is a failure even if the count is right.
+5. Confirm **no** `~/.ignition/mcp/backups/` directory is created. Pre-edit snapshots were removed
+   from the 8.3 line — git is the recovery path now — so a backups directory appearing here means
+   `SnapshotStore` came back from somewhere.
 
 > **Setting a tooltip is not possible through these tools.** Tooltips live in `meta.tooltip`, and
 > `perspective_update_component` writes only `props`, `position` and `name` (the last into
@@ -263,18 +223,18 @@ JVM debug ports. Then through the Designer bridge (**Tools → MCP Connection In
 > produce different files on the two lines. This predates the port work and is recorded in
 > [version differences](docs/modules/mcp/versions.md).
 
-## 4. Live session tools
+## 3. Live session tools
 
 Need a live session, which is why they were left for a real gateway. A session is cheap to get
 without a Designer: map a page to the view in `page-config`, then open
 `http://<gateway>/data/perspective/client/<project>`.
 
-1. Open a Perspective session against the view from §3.
+1. Open a Perspective session against the view from §2.
 2. `call perspective_session_performance '{"includeViews":true}'`
 3. **Expect** the session listed with `queueDepth`, uptime, and the view mounted — under
    `sessions[].pages[].views`, which only appears when `includeViews` is set.
 
-### 4a. `perspective_list_sessions` agrees with it
+### 3a. `perspective_list_sessions` agrees with it
 
 ```bash
 call perspective_list_sessions '{}'          # count
@@ -287,7 +247,7 @@ deserialize, and each was skipped with only a debug line. It now falls back to t
 enumeration. This matters because `perspective_diagnose_live_view` needs a session id and its own
 error text sends you here to get one.
 
-### 4b. `perspective_diagnose_live_view` reports real values
+### 3b. `perspective_diagnose_live_view` reports real values
 
 ```bash
 call perspective_diagnose_live_view '{"sessionId":"<id>"}'
@@ -308,7 +268,7 @@ recorded null. Since `badQualityCount` counts `qualityGood == false`, it could o
 zero — a view visibly showing a bad-quality overlay came back clean. The walk now runs on the
 session's execution queue with a 5s bound.
 
-## 5. `save_project` — the rewritten one
+## 4. `save_project` — the rewritten one
 
 The only tool written rather than copied. It was written *for* 8.1, which has no `canSaveProject`
 so failures surface as the gateway's own error — but it ships on **both** lines and both are worth
@@ -357,7 +317,7 @@ Worth holding in mind, because the refusal test depends on it:
 | `merge_gateway_changes` | gateway → Designer |
 | `save_project` | Designer → gateway |
 
-### 5a. The refusal path
+### 4a. The refusal path
 
 Stage an edit in the Designer, make a **conflicting** change to the same resource on the gateway,
 and confirm `save_project` refuses and names the resource rather than silently winning. The staged
@@ -380,7 +340,7 @@ not a timing artifact). Only a human saving or discarding in the Designer clears
 The merge *does* work when the gateway's change lands on a **different** resource — scan, merge,
 save then completes and the local edit survives the merge. Worth testing both.
 
-## 6. 8.1 authentication
+## 5. 8.1 authentication
 
 ```bash
 # read secret must not open the write endpoint
@@ -441,7 +401,7 @@ git worktree remove /home/nate/src/mcp-ignition-81   # only when done with the 8
 
 ## Result, 2026-08-11 {#result-2026-08-11}
 
-**Everything above passes on both gateways.** §1, §2, §3, §4, §5 and §6 all green on 8.1.43 and
+**Everything above passes on both gateways.** §1, §2, §2, §3, §4 and §5 all green on 8.1.43 and
 8.3.7, including the parts that had never run anywhere: the pre-edit backups, the wave 4
 Perspective consolidation, and `save_project` with its conflict refusal.
 
@@ -460,12 +420,14 @@ only appear against a running gateway. That is the argument for this pass having
 
 Two loose ends, neither a test failure:
 
-- `delete_resource` and `write_resource` take no pre-edit backup — `DesignerTools` never builds a
-  `SnapshotStore`, and `SnapshotStore.RESOURCES` is declared but used nowhere. Mitigated by both
-  tools staging rather than committing, so the Designer's own revert is the safety net.
 - `meta` is unreachable except through `name`, so tooltips cannot be set at all.
 
 ## What shipped
+
+> The pre-edit backups recorded below were later **removed from the 8.3 line**: 8.3 keeps tags and
+> project resources as files on disk, so version control covers the same ground and `SnapshotStore`
+> could block an edit for a reason unrelated to the edit. 8.1 keeps them. The results below stand as
+> what was true on 2026-08-11.
 
 **`mcp-v0.3.3` and `mcp81-v0.2.6`, both on 2026-08-11**, carrying the pre-edit backups, wave 4/5 on
 the 8.1 line, and the four fixes above. Those were the first releases gated on this pass.

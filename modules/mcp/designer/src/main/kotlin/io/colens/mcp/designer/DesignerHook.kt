@@ -7,6 +7,7 @@ import com.inductiveautomation.ignition.designer.model.menu.JMenuMerge
 import com.inductiveautomation.ignition.designer.model.menu.MenuBarMerge
 import com.inductiveautomation.ignition.designer.model.menu.WellKnownMenuConstants
 import io.colens.mcp.common.Constants
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpServer
 import io.colens.mcp.common.ToolRegistry
 import io.colens.mcp.designer.tools.DesignerTools
@@ -68,7 +69,7 @@ class DesignerHook : AbstractDesignerModuleHook() {
                     "is sitting at. If you ARE working in this Designer, note that save_project " +
                     "pushes the project tree and does NOT flush editors you have open and " +
                     "unsaved: their contents would be left behind by a save you did not perform.",
-                DesignerTools.SAVE_PROPERTY,
+                if (DevMode.enabled()) DevMode.PROPERTY else DesignerTools.SAVE_PROPERTY,
             )
         }
 
@@ -87,6 +88,7 @@ class DesignerHook : AbstractDesignerModuleHook() {
             // registered — a model told "nothing is ever committed" while holding save_project
             // gets contradictory guidance.
             instructions = if (DesignerTools.saveAllowed()) INSTRUCTIONS_WITH_SAVE else INSTRUCTIONS,
+            allowAnyOrigin = DevMode.enabled(),
         )
 
         val server = McpHttpServer(mcp, discoveryFile.secret)

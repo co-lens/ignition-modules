@@ -20,6 +20,7 @@ class StatusSnapshot(
     val perspectiveToolCount: Int,
     val counters: McpCounters,
     val anonymousRead: Boolean,
+    val devMode: Boolean,
     val serversUp: () -> Boolean,
     val watchdogState: () -> String,
 )
@@ -56,10 +57,12 @@ internal object StatusEntity {
     private const val REQUESTS = "mcp.gateway.requests"
     private const val ERRORS = "mcp.gateway.errors"
     private const val ANONYMOUS_READ = "mcp.gateway.anonymousRead"
+    private const val DEV_MODE = "mcp.gateway.devMode"
     private const val WATCHDOG = "mcp.gateway.trialWatchdog"
     private const val HEALTH = "mcp.gateway.status"
 
-    private val ALL_METRICS = listOf(TOOLS, READ_ONLY, REQUESTS, ERRORS, ANONYMOUS_READ, WATCHDOG)
+    private val ALL_METRICS =
+        listOf(TOOLS, READ_ONLY, REQUESTS, ERRORS, ANONYMOUS_READ, DEV_MODE, WATCHDOG)
 
     /**
      * (Re-)registers every gauge and the health check.
@@ -85,6 +88,7 @@ internal object StatusEntity {
         gauge(REQUESTS, "Requests") { snapshot.counters.requestCount }
         gauge(ERRORS, "Errors") { snapshot.counters.errorCount }
         gauge(ANONYMOUS_READ, "Anonymous read") { if (snapshot.anonymousRead) "on" else "off" }
+        gauge(DEV_MODE, "Dev mode") { if (snapshot.devMode) "ON — no credential required" else "off" }
         gauge(WATCHDOG, "Trial watchdog") { snapshot.watchdogState() }
 
         context.healthCheckRegistry.unregister(HEALTH)

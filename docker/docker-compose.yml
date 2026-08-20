@@ -17,12 +17,24 @@ services:
       IGNITION_EDITION: standard
       ACCEPT_IGNITION_EULA: Y
       ALLOW_UNSIGNED_MODULES: "true"
+      # Accepts this module's certificate at first boot, so a fresh container reaches RUNNING
+      # unattended rather than parking in COMMISSIONING. This is not a disabling of signature
+      # verification — it accepts one certificate you are choosing to trust. Prefer it to
+      # commission.sh, whose /post-step payload is rejected with a 400 on 8.3.7.
+      ACCEPT_MODULE_CERTS: io.colens.mcp-ign
       # Do NOT set GATEWAY_MODULES_ENABLED. Commissioning treats it as the COMPLETE list of
       # modules to enable, so naming only our module disables every stock module — Perspective
       # included — and they all land in quarantine on the next boot.
-    # To keep this gateway alive past the 2-hour trial, add to the JVM args below:
-    #   -Dmcp.trialWatchdog=true -Dmcp.trialWatchdog.intervalSeconds=10
-    # Note these cannot be commented out in place — `command: >` is a folded scalar, so a `#` line
+    # -Dmcp.devMode=true is what makes this gateway usable without a setup ritual: both MCP
+    # endpoints answer with no API token, so there is no key to create, no custom security level to
+    # wire into Gateway Write Permissions, and no "Require secure connections" to untick. It also
+    # implies -Dmcp.designer.allowSave and -Dmcp.trialWatchdog, so a Designer can commit and this
+    # gateway survives past the 2-hour trial.
+    #
+    # It belongs here and nowhere near a release: the write endpoint exposes run_script, which is
+    # arbitrary Jython in gateway scope. This container is throwaway and bound to localhost.
+    #
+    # Note flags cannot be commented out in place — `command: >` is a folded scalar, so a `#` line
     # inside it is passed to the JVM verbatim rather than treated as a comment.
     command: >
       -n ignition-mcp-dev
@@ -30,4 +42,6 @@ services:
       --
       -Dignition.allowunsignedmodules=true
       -Dia.developer.moduleupload=true
+      -Dmcp.devMode=true
+      -Dmcp.trialWatchdog.intervalSeconds=10
 

@@ -9,6 +9,7 @@ import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
 import io.colens.mcp.common.Constants
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpJson
 import io.colens.mcp.common.McpServer
 import io.colens.mcp.common.ToolRegistry
@@ -42,6 +43,10 @@ import java.util.Optional
  *
  * `-Dmcp.gateway.allowAnonymousRead=true` drops the token requirement from the read-only
  * endpoint. Off by default, and loud when on — see [allowAnonymousRead].
+ *
+ * `-Dmcp.devMode=true` goes further and drops it from *both*, so neither endpoint checks any
+ * credential at all — including the one guarding `run_script`. Off by default, louder still, and
+ * meant for a dev gateway nobody else can reach. See [DevMode].
  */
 @Suppress("unused")
 class GatewayHook : AbstractGatewayModuleHook() {
@@ -94,6 +99,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
             serverVersion = version,
             instructions = INSTRUCTIONS,
             extraAllowedOrigins = origins,
+            allowAnyOrigin = DevMode.enabled(),
             listener = counters,
         )
         readOnlyServer = McpServer(
@@ -101,6 +107,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
             serverVersion = version,
             instructions = INSTRUCTIONS,
             extraAllowedOrigins = origins,
+            allowAnyOrigin = DevMode.enabled(),
             listener = counters,
         )
 
@@ -142,6 +149,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
             perspectiveToolCount = perspectiveToolCount,
             counters = counters,
             anonymousRead = allowAnonymousRead(),
+            devMode = DevMode.enabled(),
             serversUp = { fullServer != null && readOnlyServer != null },
             watchdogState = { trialWatchdog?.state() ?: TrialWatchdog.State.OFF.label },
         )
@@ -179,25 +187,50 @@ class GatewayHook : AbstractGatewayModuleHook() {
         //
         // Deliberately no counts here: they went stale twice. The generated tool reference on the
         // docs site is the number that can't rot.
-        val readAccess = if (allowAnonymousRead()) {
+        //
+        // Third case, added later: mcp.devMode drops the credential from *both* routes. OPEN_ROUTE
+        // rather than the TOKEN_* strategies, because those still consult the gateway's permission
+        // sets and the point of the flag is that nothing is consulted at all.
+        val devMode = DevMode.enabled()
+        if (devMode) {
             logger.warn(
-                "mcp.gateway.allowAnonymousRead is set: {}/mcp-readonly will answer requests that " +
-                    "carry no API token. Every read-only tool — including run_query, " +
-                    "read_project_resource, read_tags, and thread_dump and thread_hotspots, which " +
-                    "return stack traces from inside this JVM — is then available to anyone who " +
-                    "can reach this gateway's web port. Intended for isolated dev gateways only.",
+                "{} is set: BOTH {}/mcp and {}/mcp-readonly will answer requests that carry no " +
+                    "credential of any kind. That includes run_script, which executes arbitrary " +
+                    "Jython in gateway scope — effectively root on this gateway — and jvm_health, " +
+                    "which returns this JVM's -D arguments verbatim, so any secret passed as a " +
+                    "system property is readable by anyone who can reach the web port. The Origin " +
+                    "allowlist is off too, so a page in a browser on any machine that can route " +
+                    "here can drive this server. Intended for an isolated dev gateway and nothing " +
+                    "else.",
+                DevMode.PROPERTY,
+                "/data/${Constants.SHORT_MODULE_ID}",
                 "/data/${Constants.SHORT_MODULE_ID}",
             )
-            ApiTokenManager.TOKEN_ACCESS
-        } else {
-            AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_ACCESS)
         }
 
-        mountMcpRoute(
-            routes,
-            "/mcp",
-            AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_WRITE),
-        ) { fullServer }
+        val readAccess = when {
+            devMode -> AccessControlStrategy.OPEN_ROUTE
+            allowAnonymousRead() -> {
+                logger.warn(
+                    "mcp.gateway.allowAnonymousRead is set: {}/mcp-readonly will answer requests that " +
+                        "carry no API token. Every read-only tool — including run_query, " +
+                        "read_project_resource, read_tags, and thread_dump and thread_hotspots, which " +
+                        "return stack traces from inside this JVM — is then available to anyone who " +
+                        "can reach this gateway's web port. Intended for isolated dev gateways only.",
+                    "/data/${Constants.SHORT_MODULE_ID}",
+                )
+                ApiTokenManager.TOKEN_ACCESS
+            }
+            else -> AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_ACCESS)
+        }
+
+        val writeAccess = if (devMode) {
+            AccessControlStrategy.OPEN_ROUTE
+        } else {
+            AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_WRITE)
+        }
+
+        mountMcpRoute(routes, "/mcp", writeAccess) { fullServer }
         mountMcpRoute(routes, "/mcp-readonly", readAccess) { readOnlyServer }
 
         routes.newRoute("/health")
@@ -221,6 +254,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
                     // Reported rather than hidden: an unauthenticated caller can already discover
                     // this by simply POSTing to the read-only endpoint and being answered.
                     put("anonymousRead", allowAnonymousRead())
+                    put("devMode", DevMode.enabled())
                     put("trialWatchdog", trialWatchdog?.state() ?: TrialWatchdog.State.OFF.label)
                 })
             }

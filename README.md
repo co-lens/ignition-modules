@@ -58,6 +58,19 @@ is gateway root. Issue such a token deliberately or not at all. See
 [Endpoints](https://co-lens.github.io/ignition-modules/modules/mcp/endpoints) and the
 [tool reference](https://co-lens.github.io/ignition-modules/modules/mcp/tools).
 
+### Developing against a throwaway gateway
+
+Steps 3 and 4 exist to protect a gateway that matters. If yours doesn't — a local container you can
+delete and rebuild — start it with `-Dmcp.devMode=true` and skip them entirely:
+
+```bash
+claude mcp add --transport http ignition http://localhost:8088/data/mcp/mcp
+```
+
+Both endpoints then answer with no credential, which means anyone who can reach the port can run
+`run_script` as gateway root. Never set it on a gateway that is reachable from a plant network. See
+[Dev mode](https://co-lens.github.io/ignition-modules/modules/mcp/endpoints#dev-mode).
+
 ## Build from source
 
 ```bash

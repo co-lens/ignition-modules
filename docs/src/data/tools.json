@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "ignitionVersion": "8.3.8",
+  "ignitionVersion": "8.3.7",
   "scopes": [
     {
       "id": "gateway",
@@ -1373,7 +1373,7 @@
             {
               "name": "save_project",
               "title": "Save the open project to the gateway",
-              "description": "Commits this Designer\u0027s staged changes to the gateway — the equivalent of a human pressing Save. Available only because this Designer was started with -Dmcp.designer.allowSave\u003dtrue.\n\nRefuses when a staged edit conflicts with a change already waiting on the gateway, naming the resources, so a merge is never silently resolved in your favour; run merge_gateway_changes first in that case. Does nothing and reports zero when there is nothing staged. Reports the resource paths it committed, so a script can check rather than assume — list_pending_changes returning 0 afterwards is the invariant.\n\nOne limitation worth knowing: this pushes what is in the project tree, and does not flush editors a human has open and unsaved in this Designer. On an unattended Designer there are none. If somebody is working in this one, their open editor\u0027s content will not be included.",
+              "description": "Commits this Designer\u0027s staged changes to the gateway — the equivalent of a human pressing Save. Available only because this Designer was started with -Dmcp.designer.allowSave\u003dtrue, or with -Dmcp.devMode\u003dtrue, which implies it.\n\nRefuses when a staged edit conflicts with a change already waiting on the gateway, naming the resources, so a merge is never silently resolved in your favour; run merge_gateway_changes first in that case. Does nothing and reports zero when there is nothing staged. Reports the resource paths it committed, so a script can check rather than assume — list_pending_changes returning 0 afterwards is the invariant.\n\nOne limitation worth knowing: this pushes what is in the project tree, and does not flush editors a human has open and unsaved in this Designer. On an unattended Designer there are none. If somebody is working in this one, their open editor\u0027s content will not be included.",
               "inputSchema": {
                 "type": "object",
                 "properties": {},

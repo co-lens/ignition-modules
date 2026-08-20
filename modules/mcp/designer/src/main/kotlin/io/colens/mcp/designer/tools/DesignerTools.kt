@@ -9,6 +9,7 @@ import com.inductiveautomation.ignition.client.rpc.PlatformRpcInstances
 import com.inductiveautomation.ignition.designer.IgnitionDesigner
 import com.inductiveautomation.ignition.designer.project.DesignerProjectTreeImpl
 import com.inductiveautomation.ignition.designer.model.DesignerContext
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpArgumentException
 import io.colens.mcp.common.Tool
 import io.colens.mcp.common.jsonArrayOf
@@ -296,7 +297,7 @@ class DesignerTools(private val context: DesignerContext) {
         title = "Save the open project to the gateway",
         description = "Commits this Designer's staged changes to the gateway — the equivalent of " +
             "a human pressing Save. Available only because this Designer was started with " +
-            "-D$SAVE_PROPERTY=true.\n\n" +
+            "-D$SAVE_PROPERTY=true, or with -D${DevMode.PROPERTY}=true, which implies it.\n\n" +
             "Refuses when a staged edit conflicts with a change already waiting on the gateway, " +
             "naming the resources, so a merge is never silently resolved in your favour; run " +
             "merge_gateway_changes first in that case. Does nothing and reports zero when there " +
@@ -618,9 +619,17 @@ class DesignerTools(private val context: DesignerContext) {
          */
         const val SAVE_PROPERTY = "mcp.designer.allowSave"
 
-        /** Tolerant of the whitespace a shell-quoted `-D` can leave behind. */
+        /**
+         * Tolerant of the whitespace a shell-quoted `-D` can leave behind.
+         *
+         * `-Dmcp.devMode=true` implies this. Answered here rather than at the call site so that
+         * both the registration in `DesignerHook` and the instructions string it picks follow from
+         * one answer — a model told "nothing is ever committed" while holding save_project gets
+         * contradictory guidance.
+         */
         fun saveAllowed(): Boolean =
-            System.getProperty(SAVE_PROPERTY)?.trim()?.equals("true", ignoreCase = true) == true
+            System.getProperty(SAVE_PROPERTY)?.trim()?.equals("true", ignoreCase = true) == true ||
+                DevMode.enabled()
     }
 
     /**
