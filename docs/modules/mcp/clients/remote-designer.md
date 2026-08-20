@@ -70,7 +70,8 @@ or a Designer that never started. Two things tell them apart:
 
 :::warning The bearer secret is the only thing protecting it
 Loopback-only is the right default because the secret in the discovery file is the *sole*
-credential. Once the endpoint is reachable from the network, that secret is all that stands between
+credential — and under [`-Dmcp.devMode=true`](../endpoints.md#dev-mode) there is no credential at
+all, so never combine dev mode with a widened bind. Once the endpoint is reachable from the network, that secret is all that stands between
 your Designer and anything that can route to it. Pair a widened bind with a firewall rule or a
 forwarded port rather than leaving it open, and don't carry this into production.
 :::

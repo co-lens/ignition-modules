@@ -17,7 +17,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Get started',
       collapsed: false,
-      items: ['mcp/quickstart', 'mcp/versions', 'mcp/docker'],
+      items: ['mcp/quickstart', 'mcp/credentials', 'mcp/versions', 'mcp/docker'],
     },
     {
       type: 'category',
@@ -38,7 +38,6 @@ const sidebars: SidebarsConfig = {
         'mcp/tags',
         'mcp/performance',
         'mcp/designer-save',
-        'mcp/backups',
         'mcp/clients/remote-designer',
       ],
     },

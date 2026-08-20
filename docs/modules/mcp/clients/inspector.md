@@ -15,4 +15,6 @@ npx @modelcontextprotocol/inspector
 
 The Inspector runs on `localhost`, which the server's `Origin` check allows. To permit a
 non-loopback browser origin, start the gateway with
-`-Dmcp.allowedOrigins=https://tools.example.com`.
+`-Dmcp.allowedOrigins=https://tools.example.com`, or on a dev gateway
+[`-Dmcp.devMode=true`](../endpoints.md#dev-mode), which accepts every Origin and drops the token
+header too.

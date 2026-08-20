@@ -109,8 +109,10 @@ The gateway consults it first when deciding whether a certificate is accepted, a
 the `ModuleUtil` logger. A sibling variable, `ACCEPT_MODULE_LICENSES`, takes the same format for
 modules that ship a license file; this module doesn't, so you won't need it.
 
-With it set, a fresh container goes straight to `RUNNING` — no commissioning step, no
-[`commission.sh`](./contributing/dev-gateway.md#commissioning), and nothing in quarantine.
+With it set, a fresh container goes straight to `RUNNING` — no commissioning step to click
+through and nothing in quarantine. It is read at **boot only**, so a container already sitting in
+`COMMISSIONING` has to be recreated (`down` then `up -d`) for it to take effect; that is safe,
+because a gateway that never finished starting has nothing in it to lose.
 
 This accepts a certificate you are choosing to trust — it does not disable signature verification.
 Each release's notes carry the certificate's SHA-256 fingerprint; compare it once before pinning
@@ -130,6 +132,12 @@ that get quarantined and unsigned ones that load directly. See
 
 ## The data volume is what survives a restart
 
+:::note This section is for a gateway you intend to keep
+The compose files **in this repository** deliberately have no data volume — they are throwaway dev
+gateways, and `docker/docker-compose.yml` says so in a comment. If you are only running the repo's
+own gateway, you can skip to [Rebuilding a local module](#rebuilding-a-local-module).
+:::
+
 Everything you'd hate to lose lives under `/usr/local/bin/ignition/data`: API tokens, projects, the
 admin user, and the record that the gateway was commissioned. The official image seeds that
 directory into an empty volume on first boot, so a named volume is all it takes.
@@ -146,172 +154,20 @@ Without one, the lifetime of your gateway's configuration is the lifetime of the
 The trap is that `up -d` looks harmless. It recreates the container whenever anything in the
 service definition changes, and takes the whole data directory with it.
 
-## Where the API token actually lives
+## The gateways in this repository
 
-<Tabs groupId="ignition-version" queryString>
-<TabItem value="83" label="Ignition 8.3" default>
+Three compose files, all throwaway, all without a data volume — `restart` to pick up a rebuilt
+module, never `up -d` on a running one:
 
-An 8.3 API token is an on-disk config resource, named for its key id:
+| File | Gateway | Ports | Module | Notes |
+| --- | --- | --- | --- | --- |
+| `docker/docker-compose.yml` | rolling `8.3` | 18088, 18000 | signed | the day-to-day dev gateway |
+| `docker/testing/docker-compose.8.3.7.yml` | pinned 8.3.7 | 18300, 18301 | unsigned | the declared floor, for release testing |
+| `docker/testing/docker-compose.8.1.43.yml` | pinned 8.1.43 | 18400, 18401 | unsigned | the 8.1 line, built from a separate worktree |
 
-```
-data/config/resources/core/ignition/api-token/<keyId>/config.json
-data/config/resources/core/ignition/api-token/<keyId>/resource.json
-```
-
-`config.json` holds the token's profile — `secureChannelRequired`, its security levels — and a
-`settings.tokenHash`. That is a **hash, not the secret**. The plaintext `<keyId>:<secret>` exists
-exactly once, on screen at creation time, and nothing on disk can hand it back.
-
-So a token cannot be seeded from an environment variable or a hand-written config file. Issue it in
-the gateway UI once; the data volume keeps it thereafter. The plaintext belongs in a `.env` on the
-**client** side, where it becomes the `X-Ignition-API-Token` header.
-
-:::tip A dev-only way to skip this entirely
-`-Dmcp.gateway.allowAnonymousRead=true` as a trailing JVM argument serves the read-only endpoint
-with no token at all — convenient for a disposable compose stack, and a data leak on anything else.
-See [Endpoints and security](./endpoints.md#opting-out-of-the-read-credential).
-:::
-
-### Sharing one token across gateways
-
-A token resource copied verbatim **is** honoured by a gateway that never issued it — the hash is all
-the gateway checks. Copy the directory out:
-
-```bash
-docker cp ignition:/usr/local/bin/ignition/data/config/resources/core/ignition/api-token/mcp \
-          ./api-token/mcp
-```
-
-```yaml
-volumes:
-  - ignition-data:/usr/local/bin/ignition/data
-  - ./api-token/mcp:/usr/local/bin/ignition/data/config/resources/core/ignition/api-token/mcp
-```
-
-:::danger Boot the gateway once *before* adding this mount
-On first boot the gateway builds its `core` resource collection and requires
-`data/config/resources/core` to be empty. A pre-populated token directory makes setup fail outright
-— the gateway never reaches `RUNNING` and `StatusPing` reports:
-
-```
-FAULTED — Unable to create 'core' resource collection
-Caused by: java.nio.file.FileAlreadyExistsException:
-  Resource collection path '.../data/config/resources/core' exists but is not empty
-```
-
-So bring each gateway up **without** the token mount, wait for `RUNNING`, then add the mount and
-`docker compose up -d`. On an already-initialised gateway it works cleanly.
-:::
-
-Two more rules:
-
-- Mount the **directory**, never `config.json` on its own — the gateway rewrites config resources by
-  atomic replace, which swaps the inode and leaves a single-file bind mount pointing at the old one.
-- Don't hand-edit the files: `resource.json` carries a `lastModificationSignature` over them.
-
-Separate tokens per gateway are still the better default — you get per-gateway revocation, and one
-leaked credential doesn't open all of them.
-
-### Restoring a backed-up token into a fresh gateway
-
-Copying a token *back* — into a gateway that has never issued one — needs the parent directory
-created first:
-
-```bash
-docker exec ignition mkdir -p \
-  /usr/local/bin/ignition/data/config/resources/core/ignition/api-token
-docker cp ./api-token/mcp \
-          ignition:/usr/local/bin/ignition/data/config/resources/core/ignition/api-token/mcp
-```
-
-`api-token/` doesn't exist until the gateway issues its first token, so without the `mkdir -p` the
-`docker cp` has nowhere to land.
-
-:::danger The obvious repair afterwards is unreachable by construction
-A restored token isn't live until the gateway rescans its resource files — and the tool that does
-that, `scan_resource_files`, is on the **write** endpoint, which is exactly the endpoint you have no
-working token for. There is no way round it from the client side.
-
-**Restart the gateway.** That is the only way in.
-:::
-
-<small>Both of these came out of a real restore run by the lens project.</small>
-
-</TabItem>
-<TabItem value="81" label="Ignition 8.1">
-
-8.1 has no API tokens. The credential is a shared secret passed as a JVM argument, which means it
-*can* come from a `.env` file through compose interpolation, as in the example above.
-
-That convenience is also the weakness: the secret is visible in the process table, shared by every
-client, and not revocable without a gateway restart. See
-[version differences](./versions.md#why-81-authentication-is-weaker).
-
-</TabItem>
-</Tabs>
-
-## Several gateways
-
-The single-gateway service scales out by giving each gateway its own port pair, its own name, and —
-critically — **its own data volume**. YAML anchors keep it readable:
-
-```yaml title="docker-compose.yml"
-x-modl: &modl
-  ./Ignition-MCP.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-MCP.modl:ro
-
-x-gateway: &gateway
-  image: inductiveautomation/ignition:8.3
-  restart: unless-stopped
-  environment:
-    ACCEPT_IGNITION_EULA: Y
-    IGNITION_EDITION: standard
-    GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD:?set it in .env}
-    ACCEPT_MODULE_CERTS: io.colens.mcp-ign
-
-services:
-  gw1:
-    <<: *gateway
-    command: ["-n", "gw1"]
-    ports: ["18088:8088", "18043:8043"]
-    volumes:
-      - *modl
-      - gw1-data:/usr/local/bin/ignition/data
-
-  gw2:
-    <<: *gateway
-    command: ["-n", "gw2"]
-    ports: ["18089:8088", "18044:8043"]
-    volumes:
-      - *modl
-      - gw2-data:/usr/local/bin/ignition/data
-
-  # gw3, gw4, gw5 follow the same shape
-
-volumes:
-  gw1-data:
-  gw2-data:
-```
-
-:::warning A merge key does not merge lists
-`<<: *gateway` merges mappings only. A service-level `volumes:` **replaces** the anchor's rather
-than adding to it, which is why the module mount is its own `*modl` anchor repeated per service.
-:::
-
-Check them all at once:
-
-```bash
-for p in 18088 18089 18090 18091 18092; do
-  printf '%s ' "$p"; curl -s "http://localhost:$p/data/mcp/health" | jq -r '.status // "no response"'
-done
-```
-
-Each gateway needs its own API token issued in its own UI, unless you share one as described above.
-
-:::tip Five gateways, five trials
-An unlicensed gateway stops after two hours, independently on each one. For a throwaway dev fleet
-the [trial watchdog](./contributing/dev-gateway.md#trial-expiry) can keep them alive; licence
-anything a customer touches.
-:::
+The two 8.3 files set `ACCEPT_MODULE_CERTS` and `-Dmcp.devMode=true`, so they come up with no
+commissioning click and no credential to issue. `docker/commission.sh` reports what state a gateway
+is in when one will not start.
 
 ## Rebuilding a local module
 
@@ -323,7 +179,11 @@ rebuild only needs the gateway restarted, not recreated:
 docker compose restart
 ```
 
-Sign even your local builds. An unsigned module has no certificate fingerprint for the gateway to
-remember, so `ACCEPT_MODULE_CERTS` has nothing to match and the gateway re-prompts for commissioning
-on every restart. [Building](./contributing/building.md) covers signing;
-[Dev gateway](./contributing/dev-gateway.md) covers the repo's own compose file.
+Signing a local build is worth doing, but it is not what keeps the gateway from re-prompting:
+`ACCEPT_MODULE_CERTS` accepts an **unsigned** module perfectly well. Measured on 8.3.7 — the pinned
+test gateway mounts `Ignition-MCP.unsigned.modl` with that variable set and reaches `RUNNING`
+unattended from a cold start and across repeated restarts.
+
+[Building](./contributing/building.md) covers signing; [Dev
+gateway](./contributing/dev-gateway.md) covers the repo's own compose file, and
+[Docker operations](./docker-operations.md) covers tokens and fleets.

@@ -38,7 +38,7 @@ use. [Endpoints and security](./endpoints.md) covers this properly.
 **Designer writes are staged, not committed.** Everything the Designer tools write appears as an
 unsaved change for a human to review and save, and the gateway endpoint has no project-write
 surface at all. One opt-in tool commits — `save_project`, off unless the Designer was started with
-`-Dmcp.designer.allowSave=true`. See [Saving from a Designer](./designer-save.md).
+`-Dmcp.designer.allowSave=true` (or `-Dmcp.devMode=true`, which implies it). See [Saving from a Designer](./designer-save.md).
 
 ## Where to go next
 

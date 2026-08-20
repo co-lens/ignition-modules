@@ -8,90 +8,57 @@ import TabItem from '@theme/TabItem';
 
 # Quickstart
 
-Four steps, about ten minutes: get the module, install it, issue a credential, point your client
-at it.
+Three steps, about five minutes: get the module, install it, point your client at it.
 
 You need an Ignition gateway you can restart, and an MCP client — the examples use
 [Claude Code](https://claude.com/claude-code), but any client that speaks Streamable HTTP works.
 
-:::tip Pick your Ignition version once
-The tabs below are synced across the whole site. Choose 8.3 or 8.1 here and every other page
-follows. Not sure which you're on? `curl -s http://<gateway>:8088/data/mcp/health` after step 2
-tells you, or see [version differences](./versions.md).
-:::
+Pick your Ignition version in the tabs below; the choice is remembered across the whole site.
 
 ## 1. Get the module
 
 Download from the [latest release](https://github.com/co-lens/ignition-modules/releases/latest).
-The asset name differs per platform line — **downloading the wrong one gets you a module the
-gateway refuses to install.**
+**Name the tag** — the two platform lines publish separately, so an unnamed download gets you
+whichever went out last, and the gateway refuses the wrong one.[^tag]
 
 <Tabs groupId="ignition-version" queryString>
 <TabItem value="83" label="Ignition 8.3" default>
 
-Releases are tagged `mcp-v<version>`; the asset is `Ignition-MCP-<version>.modl`. **Name the tag**
-— substitute the version from the releases page:
-
 ```bash
-gh release download mcp-v0.2.0 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-0.2.0.modl*'
-sha256sum -c Ignition-MCP-0.2.0.modl.sha256
+gh release download mcp-v0.3.3 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-0.3.3.modl*'
+sha256sum -c Ignition-MCP-0.3.3.modl.sha256
 ```
-
-:::note Why the tag rather than a pattern
-`gh release download` with no tag takes the *latest* release, and the two platform lines publish
-separately — so whichever went out last wins, regardless of which one you want. A pattern doesn't
-save you either: `'Ignition-MCP-[0-9]*'` matches `Ignition-MCP-81-<version>.modl`, because the `8`
-of `-81-` satisfies `[0-9]`. Naming the tag settles both, since a tag belongs to exactly one line.
-:::
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">
 
-Releases are tagged `mcp81-v<version>`; the asset is `Ignition-MCP-81-<version>.modl`. Name the tag
-here too — without one you get whichever line published most recently:
-
 ```bash
-gh release download mcp81-v0.2.0 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-81-0.2.0.modl*'
-sha256sum -c Ignition-MCP-81-0.2.0.modl.sha256
+gh release download mcp81-v0.2.6 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-81-0.2.6.modl*'
+sha256sum -c Ignition-MCP-81-0.2.6.modl.sha256
 ```
 
-The 8.1 line also **requires Perspective** to be installed on the gateway — see
+The 8.1 line also **requires Perspective** on the gateway — see
 [version differences](./versions.md).
 
 </TabItem>
 </Tabs>
 
-Released builds are signed, so the gateway remembers the certificate and reaches RUNNING
-unattended after the first install. Each release's notes carry the certificate's SHA-256
-fingerprint — compare it against what the gateway shows when it asks you to accept.
-
-<details>
-<summary>Or build from source</summary>
-
-```bash
-git clone https://github.com/co-lens/ignition-modules.git
-cd ignition-modules                 # 8.3
-# git switch 8.1/main               # 8.1
-./gradlew :modules:mcp:build
-```
-
-See [Building](./contributing/building.md) for signing, which you want even locally.
-
-</details>
+Substitute the current version from the releases page. Released builds are signed, so the gateway
+remembers the certificate after the first install; each release's notes carry the certificate's
+SHA-256 fingerprint to compare against what the gateway shows you.
 
 ## 2. Install it on the gateway
 
-Upload the `.modl` from the gateway's **Config → Modules** page and accept the certificate when
-prompted. Or drop the file into the module folder and restart:
+Upload the `.modl` from **Config → Modules** and accept the certificate when prompted. Or drop it
+into the module folder and restart:
 
 ```bash
 cp Ignition-MCP*.modl /usr/local/bin/ignition/user-lib/modules/
 ```
 
 :::tip Running in Docker?
-[Docker Compose](./docker.md) has ready-to-run files, and covers the two things containers change:
-accepting the module certificate unattended, and keeping your API token across a `docker compose
-up -d`.
+[Docker Compose](./docker.md) has ready-to-run files and the one environment variable that stops a
+container hanging at commissioning.
 :::
 
 Confirm it came up — this endpoint needs no credential:
@@ -101,150 +68,57 @@ curl -s http://<gateway>:8088/data/mcp/health
 ```
 
 ```json
-{"status":"ok","server":"ignition-mcp","version":"0.1.0","mcpEndpoint":"/data/mcp/mcp", ...}
+{"status":"ok","server":"ignition-mcp","version":"0.3.3","mcpEndpoint":"/data/mcp/mcp",
+ "tools":35,"readOnlyTools":27,"anonymousRead":false,"devMode":false, ...}
 ```
 
-`"status":"starting"` means the module loaded but hasn't finished; a 404 means it didn't load at
-all. Either way, [Troubleshooting](./troubleshooting.md) has the next step.
+Anything other than `"status":"ok"` — including a 404 — is covered in
+[Troubleshooting](./troubleshooting.md).
 
-## 3. Issue a credential
+## 3. Connect your client
 
-<Tabs groupId="ignition-version" queryString>
-<TabItem value="83" label="Ignition 8.3" default>
-
-**Platform → Security → API Keys** (older 8.3 builds label it Config → Security → API Tokens). A
-default key (security level `Authenticated`, no extra permissions) is all the read-only endpoint
-needs. The credential is `<keyId>:<secret>`, and it is **shown once, at creation** — there is no
-way to read it back afterwards.
-
-:::warning The gotcha that costs everyone an hour
-New keys default to **Require secure connections for API Keys**, which makes them fail over plain
-HTTP no matter what else is correct. Use HTTPS, or untick that box for a local gateway.
-:::
-
-:::warning Writing needs a custom security level — you cannot just grant Administrator
-A default key reaches the read-only endpoint and **only** that. The write endpoint checks the
-gateway's **write** permission, which a freshly-commissioned 8.3 ships as
-`AnyOf[Authenticated/Roles/Administrator]` — and a key carrying only `Authenticated` does not
-satisfy it.
-
-**You cannot fix this by ticking `Administrator` on the key.** The checkbox is visible in the key's
-security-level tree and does nothing: 8.3 ignores `Authenticated/Roles` and `SecurityZones` levels
-granted to an API key, because those are system-generated levels a user is not allowed to assign.
-Editing `securityLevels` in the key's `config.json` on disk does not work either, for the same
-reason. So on a default gateway **no API key can ever reach the write endpoint** until you add a
-level of your own. Three steps, all in the gateway UI:
-
-1. **Platform → Security → Levels** — select `Authenticated`, **Add Level**, name it (e.g.
-   `McpWrite`), **Save Changes**. Its path becomes `Authenticated/McpWrite`.
-2. **Platform → Security → General Settings → Roles & Permissions** — under **Gateway Write
-   Permissions**, tick your new level and **Save Changes**. Leave the mode on *at least one of*, so
-   `Administrator` keeps working for human users.
-3. **Platform → Security → API Keys** — create the key (or **⋮ → Edit** an existing one) and tick
-   the new level under `Authenticated`.
-
-Verified on 8.3.7. Note this widens gateway-wide write permission, not just MCP's: anything else
-checking `writePermissions` now also accepts that level, so give it only to keys that should have it.
-
-Skipping this produces a symptom pair specific enough to be diagnostic — **200 on
-`/data/mcp/mcp-readonly`, 403 on `/data/mcp/mcp`** — and it reads like a module fault when it is a
-permissions one. See
-[403 on `/data/mcp/mcp` while `/mcp-readonly` works](./troubleshooting.md#write-403).
-
-A write credential exposes `run_script`, which is arbitrary Jython in gateway scope. If you only
-need reads, leave this alone — see [Endpoints and security](./endpoints.md).
-:::
-
-</TabItem>
-<TabItem value="81" label="Ignition 8.1">
-
-8.1 has no API tokens, so the credential is a shared secret set as a JVM argument in
-`ignition.conf`, then a gateway restart:
-
-```
-wrapper.java.additional.9=-Dmcp.gateway.readSecret=<32+ random characters>
-```
-
-Generate one with `openssl rand -hex 24`. Add `-Dmcp.gateway.writeSecret=...` as well only if you
-need write access.
-
-:::danger Set only readSecret unless you need writes
-The write secret grants `run_script` — arbitrary Jython in gateway scope, which is gateway root.
-These secrets are also visible in the process table and not revocable without a restart. See
-[version differences](./versions.md).
-:::
-
-If neither is set, both endpoints reject everything with 401 and the gateway log says so.
-
-</TabItem>
-</Tabs>
-
-Start read-only either way. A write credential effectively hands over the gateway — see
-[Endpoints and security](./endpoints.md).
-
-## 4. Connect your client
-
-<Tabs groupId="ignition-version" queryString>
-<TabItem value="83" label="Ignition 8.3" default>
+Both endpoints normally require a credential. On a **local gateway you can afford to throw away**,
+skip issuing one: start it with `-Dmcp.devMode=true` and they answer with no header at all.
 
 ```bash
 claude mcp add --transport http ignition \
-  http://<gateway>:8088/data/mcp/mcp-readonly \
-  --header "X-Ignition-API-Token: <keyId>:<secret>"
+  http://<gateway>:8088/data/mcp/mcp-readonly
 ```
 
 Verify by hand before trusting it:
 
 ```bash
 curl -s -X POST http://<gateway>:8088/data/mcp/mcp-readonly \
-  -H 'X-Ignition-API-Token: <keyId>:<secret>' \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
 ```
 
-</TabItem>
-<TabItem value="81" label="Ignition 8.1">
-
-```bash
-claude mcp add --transport http ignition \
-  http://<gateway>:8088/data/mcp/mcp-readonly \
-  --header "Authorization: Bearer <readSecret>"
-```
-
-Verify by hand before trusting it:
-
-```bash
-curl -s -X POST http://<gateway>:8088/data/mcp/mcp-readonly \
-  -H 'Authorization: Bearer <readSecret>' \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
-```
-
-</TabItem>
-</Tabs>
+Anywhere else — and on **8.1, which has no dev mode** — issue a credential and add one header to
+both commands above: `X-Ignition-API-Token: <keyId>:<secret>` on 8.3, or
+`Authorization: Bearer <readSecret>` on 8.1. See [Issue a credential](./credentials.md).
 
 A list of tool names means you're done. Try asking your client *"what tag providers does this
 gateway have?"* — it will call `list_tag_providers` on its own.
+
+:::warning For any gateway that matters
+Dev mode leaves the write endpoint — and `run_script`, which is gateway root — open to anyone who
+can reach the port. Issue a real credential instead: [Issue a credential](./credentials.md), and
+[Endpoints and security](./endpoints.md) for what each endpoint exposes.
+:::
 
 **Next:** [what you can ask for](./using.md).
 
 ## Optional: connect a Designer
 
-The gateway sees saved project state. A Designer additionally exposes *unsaved* edits, and its
-write tools **stage** changes for a human to review rather than committing them — which is what
-makes Perspective view editing safe.
+The gateway sees saved project state; a Designer additionally exposes *unsaved* edits and can build
+Perspective views. Install the same module — it carries both scopes — open a project, then use
+**Tools → MCP Connection Info…** for a ready-to-paste command.
 
-Worth being precise about, since the two scopes differ: staging is a property of the *Designer's*
-write tools only. The gateway's write tools — `write_tags`, `configure_tags`, `delete_tags`,
-`run_script` and the rest — commit immediately, with nothing to review and no undo.
+See [the Designer bridge](./endpoints.md#designer), [what it stages rather than
+commits](./designer-save.md), and [Reaching a Designer on another
+machine](./clients/remote-designer.md).
 
-Install the same module (it carries both scopes), open a project, then use
-**Tools → MCP Connection Info…** for a ready-to-paste command. The Designer bridge works
-identically on both platform lines: it runs its own loopback server with a per-session secret and
-never touches Ignition's authentication.
-
-See [the Designer bridge](./endpoints.md#designer), and
-[Reaching a Designer on another machine](./clients/remote-designer.md) if it isn't on the same host
-as your client.
+[^tag]: A pattern doesn't save you either: `'Ignition-MCP-[0-9]*'` matches
+    `Ignition-MCP-81-<version>.modl`, because the `8` of `-81-` satisfies `[0-9]`. A tag belongs to
+    exactly one line, so naming it settles both.

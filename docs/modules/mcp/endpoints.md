@@ -33,7 +33,7 @@ curl -s http://<gateway>:8088/data/mcp/health
 {
   "status": "ok",
   "server": "ignition-mcp",
-  "version": "0.2.0",
+  "version": "0.3.3",
   "mcpEndpoint": "/data/mcp/mcp",
   "mcpReadOnlyEndpoint": "/data/mcp/mcp-readonly",
   "tools": 35,
@@ -44,6 +44,7 @@ curl -s http://<gateway>:8088/data/mcp/health
   "toolErrors": 2,
   "protocolErrors": 1,
   "anonymousRead": false,
+  "devMode": false,
   "trialWatchdog": "off"
 }
 ```
@@ -73,7 +74,7 @@ the module's handler runs, so there is no authentication code in this module at 
   means the `Administrator` role. A token cannot hold that role — 8.3 ignores `Authenticated/Roles`
   levels granted to an API key — so reaching the write endpoint requires a custom security level
   added to the gateway's write permission. See
-  [Issue a credential](./quickstart.md#3-issue-a-credential).
+  [Issue a credential](./credentials.md#write-permission).
 
 Both routes require the token to *validate*, on top of the permission check. That distinction
 matters more than it sounds: the gateway's `accessPermissions` property ships as an empty
@@ -105,6 +106,41 @@ isolated dev gateway; never on anything reachable from a plant network.
 The write endpoint is unaffected by the flag and always requires a valid token with write
 permission. A gateway whose `accessPermissions` have been tightened still enforces them, since the
 flag relaxes only this module's own requirement.
+
+#### Dev mode — opting out of every credential {#dev-mode}
+
+`-Dmcp.devMode=true` is the flag for a throwaway gateway you are developing against. It drops the
+credential from **both** endpoints, so neither checks anything at all:
+
+```
+wrapper.java.additional.9=-Dmcp.devMode=true
+```
+
+That removes the whole setup ritual — no API key to create, no custom security level to wire into
+Gateway Write Permissions, no *Require secure connections* to untick. It also implies
+[`mcp.designer.allowSave`](./designer-save.md) and `mcp.trialWatchdog`, and turns off
+[Origin checking](#origin-checking). Set it on the Designer's JVM too — the Designer runs in its own
+process, so one flag in `ignition.conf` cannot reach it — and its bearer secret stops being required
+as well.
+
+:::danger Dev mode hands the gateway to anyone who can reach the port
+This is a larger step than `allowAnonymousRead`, which only opens the read side. Dev mode opens the
+**write** endpoint, and that endpoint carries `run_script` — arbitrary Jython in gateway scope,
+which is root on the gateway. Anyone who can open a TCP connection to the web port can run code as
+the gateway user, read every database connection, and rewrite any project.
+
+Two consequences worth naming, because neither is obvious:
+
+- `jvm_health` returns this JVM's `-D` arguments verbatim, so any secret passed as a system
+  property is readable by an unauthenticated caller.
+- With Origin checking off, a page open in a browser **on your own machine** can drive a dev-mode
+  gateway on `localhost`. The loopback bind is no longer a boundary.
+
+It is off by default and logs a WARN under `mcp.Gateway` at every startup when on, and
+`/data/mcp/health` reports `"devMode": true`. The metric `mcp.gateway.devMode` also appears on
+**Diagnostics → Metrics Dashboard** — but *not* on the gateway's status card, which renders only
+four metrics. Use it on an isolated dev gateway and nowhere else.
+:::
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">
@@ -171,6 +207,9 @@ there, because widening the bind makes that per-session secret the only thing pr
 Requests carrying a browser `Origin` header are checked against loopback by default. To allow a
 non-loopback browser origin — the MCP Inspector served from elsewhere, say — start the gateway with
 `-Dmcp.allowedOrigins=https://tools.example.com`.
+
+[Dev mode](#dev-mode) accepts every Origin, which is convenient and also removes the defence that
+stops a web page from reaching a gateway on your loopback interface.
 
 ## What's on each endpoint
 

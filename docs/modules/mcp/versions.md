@@ -6,9 +6,9 @@ sidebar_position: 3
 
 # Ignition 8.1 vs 8.3
 
-The module supports both platform lines, from two branches. What differs is how you authenticate,
-what the file is called, and — for the first time — a handful of tools the 8.1 line will not be
-getting.
+The module supports both platform lines, from two branches. The **tool set is identical** — 56
+tools on each. What differs is how you authenticate, what the file is called, and a short list of
+behaviours the platform forces.
 
 :::warning The 8.1 line is time-limited
 It exists for people who can't move to 8.3 yet, receives only security and wrong-data bug fixes,
@@ -34,6 +34,8 @@ further is built. If you have a choice, use 8.3.
 | New Perspective components | only the properties you set are written | Perspective seeds its own defaults as well |
 | Project files edited on disk | never picked up until `scan_resource_files` runs | the gateway also scans on its own |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
+| Pre-edit backups | none — 8.3 keeps tags and project resources as files on disk, so version control is the recovery path | written before every tag-config and Perspective edit, under `~/.ignition/mcp/backups` or the gateway data directory |
+| Dev mode | `-Dmcp.devMode=true` opens both endpoints and drops the Designer bearer secret | not available; the two shared secrets are already JVM arguments, so there is little left to skip |
 
 **The tool sets match.** The ten tools that were 8.1-only-absent — the four tag configuration
 tools, the five performance tools and `save_project` — were ported in five waves and are on the 8.1
@@ -88,7 +90,7 @@ the write endpoint is closed and answers 401 to everything.
 
 8.1's module descriptor parser has no `required` attribute on dependencies, so optional module
 dependencies don't exist on that platform line. The alternative — dropping the dependency — would
-cost classloader visibility of Perspective's classes and remove all 19 Perspective tools, which is
+cost classloader visibility of Perspective's classes and remove all 23 Perspective tools, which is
 the worse trade.
 
 On 8.3 the dependency is genuinely optional: without Perspective installed the `perspective_*`
@@ -103,3 +105,6 @@ curl -s http://<gateway>:8088/data/mcp/health
 ```
 
 The 8.1 build reports `"platform":"8.1"` and `"authConfigured"`; the 8.3 build reports neither.
+
+The 8.3 payload also carries `"devMode"`. If it reads `true`, that gateway serves **both** endpoints
+with no credential at all — see [Dev mode](./endpoints.md#dev-mode).

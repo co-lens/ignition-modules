@@ -18,6 +18,9 @@ wrapper.java.additional.9=-Dmcp.designer.allowSave=true
 
 or, launching a Designer directly, add `-Dmcp.designer.allowSave=true` to its JVM arguments.
 
+[`-Dmcp.devMode=true`](./endpoints.md#dev-mode) implies this flag, so a Designer started in dev mode
+already has `save_project` registered.
+
 With the flag off — the default — `save_project` **is not registered at all**. It won't appear in
 `tools/list`, and calling it returns `Unknown tool` rather than a permission error, the same
 structural gating the gateway's write endpoint uses. The tool is documented either way, in the

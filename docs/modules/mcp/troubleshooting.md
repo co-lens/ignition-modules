@@ -35,7 +35,9 @@ docker logs <container> 2>&1 | grep -iE 'mcp\.|Ignition MCP|quarantine'
 The usual causes:
 
 - **"Moving module … to quarantine because certificate not yet accepted"** — the certificate hasn't
-  been approved. Approve it in **Config → Modules**. On a *dev* build this is version-dependent:
+  been approved. Approve it in **Config → Modules**, or — in a container — set
+  [`ACCEPT_MODULE_CERTS`](./docker.md#accept_module_certs-is-what-stops-it-hanging-at-commissioning),
+  which accepts it at boot without anyone clicking. On a *dev* build this is version-dependent:
   8.3 quarantines **unsigned** modules, and 8.1 quarantines modules signed with an **unknown**
   certificate while loading unsigned ones directly. See
   [version differences](./versions.md).
@@ -69,6 +71,12 @@ client, or — for an isolated dev gateway only — set
 [`-Dmcp.gateway.allowAnonymousRead=true`](./endpoints.md#opting-out-of-the-read-credential).
 :::
 
+:::tip If this is a gateway you can afford to throw away
+[`-Dmcp.devMode=true`](./endpoints.md#dev-mode) makes every 401 and 403 on this page go away by
+removing the credential check from both endpoints. That includes the write endpoint and
+`run_script`, so it is only ever right for a disposable gateway.
+:::
+
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">
 
@@ -98,7 +106,7 @@ Ticking `Administrator` on the key will not do it — 8.3 ignores `Authenticated
 `SecurityZones` levels granted to an API key, so on a default gateway **no key can satisfy
 `writePermissions` at all**. You have to create a security level of your own, add it to **Gateway
 Write Permissions**, and grant it to the key: see
-[Issue a credential](./quickstart.md#3-issue-a-credential) for the three steps.
+[Issue a credential](./credentials.md#write-permission) for the three steps.
 
 If you granted a level and still get 403, check that you ticked it under **Gateway Write
 Permissions** and not only on the key — the key holding a level the gateway never asks for changes

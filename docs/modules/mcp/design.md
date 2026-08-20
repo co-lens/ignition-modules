@@ -41,7 +41,7 @@ the shipped bundles. Each one fails silently or breaks a page if ignored, so the
 as much as in `StatusEntity`:
 
 - **Only four metrics render.** `OverviewCard` slices the list at four. Anything past the fourth is
-  dropped with no warning — which is why `anonymousRead` and `trialWatchdog` live on the health
+  dropped with no warning — which is why `anonymousRead`, `devMode` and `trialWatchdog` live on the health
   endpoint instead.
 - **Order is alphabetical by alias**, not the order they're declared. The builder collects into a
   `TreeMap`; the declared order is only an include-filter.

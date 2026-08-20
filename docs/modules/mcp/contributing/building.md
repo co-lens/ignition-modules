@@ -26,9 +26,13 @@ signed `.modl` in place — so "the file exists" proves nothing. CI additionally
 `-Pmodule.requireSigning=true`, which turns a missing credential into a build failure.
 :::
 
-**Sign even for local development.** An unsigned module has no certificate fingerprint for the
-gateway to remember, so 8.3 re-prompts for commissioning on *every* restart and never reaches
-RUNNING unattended. A self-signed cert is enough:
+**Signing locally is worth it, but it is not what avoids the commissioning prompt.** An unsigned
+module has no certificate fingerprint for the gateway to remember, so on 8.3 a *bare* container
+stops at `COMMISSIONING` and waits for a human. Setting
+[`ACCEPT_MODULE_CERTS`](../docker.md#accept_module_certs-is-what-stops-it-hanging-at-commissioning)
+fixes that for unsigned builds too — measured on 8.3.7, an unsigned module with that variable set
+reaches RUNNING unattended from a cold start and across restarts. Sign anyway when you want the
+build to resemble a release. A self-signed cert is enough:
 
 ```bash
 mkdir -p ~/.mcp-ign-signing && cd ~/.mcp-ign-signing

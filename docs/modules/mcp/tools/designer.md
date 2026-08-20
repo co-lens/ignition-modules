@@ -14,7 +14,8 @@ Every write here **stages** an unsaved Designer change rather than committing to
 `destructive` badge means the staged edit is hard to undo, not that it reaches the gateway.
 
 The one exception is `save_project`, which commits — it is registered only when the Designer was
-started with `-Dmcp.designer.allowSave=true`, so it is absent unless somebody asked for it. See
+started with `-Dmcp.designer.allowSave=true` — or `-Dmcp.devMode=true`, which implies it — so it
+is absent unless somebody asked for it. See
 [Saving from a Designer](../designer-save.md).
 
 <ToolReference scope="designer" />
