@@ -94,9 +94,9 @@ curl -s -X POST http://<gateway>:8088/data/mcp/mcp-readonly \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
 ```
 
-Anywhere else — and on **8.1, which has no dev mode** — issue a credential and add one header to
-both commands above: `X-Ignition-API-Token: <keyId>:<secret>` on 8.3, or
-`Authorization: Bearer <readSecret>` on 8.1. See [Issue a credential](./credentials.md).
+Anywhere else, issue a credential and add one header to both commands above:
+`X-Ignition-API-Token: <keyId>:<secret>` on 8.3, or `Authorization: Bearer <readSecret>` on 8.1.
+See [Issue a credential](./credentials.md).
 
 A list of tool names means you're done. Try asking your client *"what tag providers does this
 gateway have?"* — it will call `list_tag_providers` on its own.

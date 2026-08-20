@@ -9,8 +9,8 @@ import TabItem from '@theme/TabItem';
 # Issue a credential
 
 [Quickstart](./quickstart.md) skips this by running a local gateway with `-Dmcp.devMode=true`, which
-serves both endpoints with no credential at all. That is right for a container you can delete and
-wrong for anything else. This page is the real thing.
+serves both endpoints with no credential at all — on **either** platform line. That is right for a
+container you can delete and wrong for anything else. This page is the real thing.
 
 Start read-only. A write credential exposes `run_script` — arbitrary Jython in gateway scope, which
 is gateway root. See [Endpoints and security](./endpoints.md).

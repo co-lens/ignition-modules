@@ -35,7 +35,7 @@ further is built. If you have a choice, use 8.3.
 | Project files edited on disk | never picked up until `scan_resource_files` runs | the gateway also scans on its own |
 | Unsigned dev builds | need commissioning approval | load directly; *signed* dev builds are the ones quarantined |
 | Pre-edit backups | none — 8.3 keeps tags and project resources as files on disk, so version control is the recovery path | written before every tag-config and Perspective edit, under `~/.ignition/mcp/backups` or the gateway data directory |
-| Dev mode | `-Dmcp.devMode=true` opens both endpoints and drops the Designer bearer secret | not available; the two shared secrets are already JVM arguments, so there is little left to skip |
+| Dev mode | `-Dmcp.devMode=true` — replaces an API key *and* a custom security level, so it saves the most here | same flag, same effect, but the credential is already a `-D` property, so it only saves you inventing a secret |
 
 **The tool sets match.** The ten tools that were 8.1-only-absent — the four tag configuration
 tools, the five performance tools and `save_project` — were ported in five waves and are on the 8.1

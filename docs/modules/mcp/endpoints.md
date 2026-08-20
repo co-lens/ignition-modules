@@ -160,6 +160,24 @@ Unset means nobody, never everybody — an unset secret closes its endpoint, and
 These secrets are materially weaker than tokens — not revocable without a restart, visible in the
 process table, shared by every client. See [version differences](./versions.md).
 
+#### Dev mode {#dev-mode-81}
+
+`-Dmcp.devMode=true` works on this line too, and does the same thing: both endpoints answer with no
+`Authorization` header at all, whatever the two secrets say, and the Origin allowlist is off. It
+also implies [`mcp.designer.allowSave`](./designer-save.md) and `mcp.trialWatchdog`, and drops the
+Designer bridge's own bearer secret when set on that JVM.
+
+It saves less here than on 8.3 — the credential is already a `-D` property, so it only spares you
+inventing one — and it is correspondingly easier to leave on by accident. `/data/mcp/health`
+reports `"devMode": true`, and the gateway logs a WARN naming both secrets at every startup.
+
+:::danger This overrides a configured secret
+Dev mode does not merely fill in for a missing secret; it ignores one that is set. It opens the
+**write** endpoint and `run_script` with it. Note too that `jvm_health` returns this JVM's `-D`
+arguments verbatim — so with dev mode on, `readSecret` and `writeSecret` are both readable by an
+unauthenticated caller. Isolated dev gateways only.
+:::
+
 </TabItem>
 </Tabs>
 
