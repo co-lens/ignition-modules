@@ -44,6 +44,25 @@ putting the bridge silently back on loopback:
 This has cost two sessions time, and the failure it produces is the one below.
 :::
 
+## When the Designer is in a VM or a container
+
+Widening the bind only helps if something can route to the Designer's machine. A Designer in a VM
+with **NAT** networking can reach your gateway while nothing can reach *it* — outbound working tells
+you nothing about inbound, and that asymmetry is the single most common reason this looks broken
+after the JVM arguments are correct.
+
+Two ways out, in order of effort:
+
+- Switch the VM's adapter to **bridged**, so it gets an address on your LAN, or add a port-forward
+  for the pinned port in the hypervisor.
+- Or don't cross the boundary at all: run your MCP client **inside** the VM, where the bridge is on
+  loopback and none of this applies.
+
+If the VM itself runs inside a container, the guest is usually on a bridge private to that
+container, and its address may well collide with one on your host — so probing it from the host can
+answer from an entirely different machine. Enter the container's network namespace first, and use
+`curl` rather than a shell's `/dev/tcp`, which is a bash builtin many container shells lack.
+
 ## "Connection refused", and how to tell why
 
 `ECONNREFUSED` from a client on another machine is indistinguishable from a dead port, a wrong port,

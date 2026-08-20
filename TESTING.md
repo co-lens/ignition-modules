@@ -112,6 +112,51 @@ call81() {
 > `restart`s including a `.modl` swap — the gateway reached `RUNNING` unattended each time. So treat
 > it as a possibility to check (`curl -s localhost:18300/StatusPing`), not a step to plan around.
 
+## Reaching the Designers
+
+The Designers run in **Windows, inside the `omarchy-windows` container** (`dockurr/windows`) on this
+machine. That container publishes only 3389 and 8006, so the Designer MCP bridge **cannot be reached
+from the host** — scanning the LAN for it will always come up empty. The guest sits on the
+container's own internal bridge and takes DHCP lease `172.31.0.2`.
+
+Start each Designer with all its JVM arguments as one semicolon-separated value (the launcher's
+field replaces rather than appends), pinning a different port per line:
+
+```
+8.3 Designer:  -Dmcp.devMode=true;-Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.port=8770
+8.1 Designer:  -Dmcp.devMode=true;-Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.port=8771
+```
+
+`-Dmcp.devMode=true` implies `mcp.designer.allowSave`, so `save_project` registers without a fourth
+argument. Take each bearer secret from **Tools → MCP Connection Info…**; it rotates per session.
+
+Then drive the bridge from inside the container's network namespace:
+
+```bash
+des() {  # des <port> <secret> <tool> <json-args>
+  python3 -c "
+import json,sys
+print(json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call',
+                  'params':{'name':sys.argv[1],'arguments':json.loads(sys.argv[2])}}))" "$3" "$4" > /tmp/_b.json
+  docker cp /tmp/_b.json omarchy-windows:/tmp/_b.json >/dev/null
+  docker exec omarchy-windows curl -s --max-time 90 -X POST "http://172.31.0.2:$1/mcp" \
+    -H 'Content-Type: application/json' -H "Authorization: Bearer $2" -d @/tmp/_b.json \
+    | python3 -m json.tool
+}
+```
+
+Three traps, each of which has cost a session:
+
+- **`172.31.0.2` means two different machines.** This host has its own Docker bridge on
+  172.31.0.0/16, so probing that address *from the host* answers from an Ignition gateway container
+  instead of Windows. The address is only meaningful inside `omarchy-windows`.
+- **That container's `/bin/sh` is dash**, so `echo > /dev/tcp/host/port` always reports failure —
+  `/dev/tcp` is a bash builtin. Use `curl`, which the image has.
+- **The connect dialog shows `0.0.0.0`.** That is what the bridge bound to, not an address to
+  connect to.
+
+The Designer launcher installed on the Linux host does not work. Don't reach for it.
+
 ---
 
 # The tests
