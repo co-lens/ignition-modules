@@ -33,7 +33,7 @@ curl -s http://<gateway>:8088/data/mcp/health
 {
   "status": "ok",
   "server": "ignition-mcp",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "mcpEndpoint": "/data/mcp/mcp",
   "mcpReadOnlyEndpoint": "/data/mcp/mcp-readonly",
   "tools": 35,
