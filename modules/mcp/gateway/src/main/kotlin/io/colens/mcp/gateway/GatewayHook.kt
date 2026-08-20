@@ -6,6 +6,7 @@ import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
 import io.colens.mcp.common.Constants
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpJson
 import io.colens.mcp.common.McpServer
 import io.colens.mcp.common.ToolRegistry
@@ -35,6 +36,9 @@ import java.util.Optional
  *
  * The credential is a shared bearer secret rather than an API token because **8.1 has no API
  * tokens at all** — see [BearerAccessControl] for what that costs and the recommended posture.
+ *
+ * `-Dmcp.devMode=true` drops the secret from both endpoints, ignores the Origin allowlist, and
+ * turns on `save_project` and the trial watchdog. Off by default, loud when on. See [DevMode].
  */
 @Suppress("unused")
 class GatewayHook : AbstractGatewayModuleHook() {
@@ -55,8 +59,12 @@ class GatewayHook : AbstractGatewayModuleHook() {
     private val readSecret: String? = BearerAccessControl.secret(BearerAccessControl.READ_SECRET_PROPERTY)
     private val writeSecret: String? = BearerAccessControl.secret(BearerAccessControl.WRITE_SECRET_PROPERTY)
 
+    // Snapshotted here for the same reason as the secrets above: run_script can call
+    // System.setProperty, and a gateway that started closed must stay closed.
+    private val devMode: Boolean = DevMode.enabled()
+
     private val writeAccess = BearerAccessControl(
-        "write", listOfNotNull(writeSecret).map(BearerAccessControl::utf8),
+        "write", listOfNotNull(writeSecret).map(BearerAccessControl::utf8), devMode,
     )
 
     // The write secret also opens the read endpoint. Not an escalation: the read-only registry is
@@ -64,7 +72,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
     // through /mcp. Refusing it would only break a client configured with both endpoints and one
     // secret.
     private val readAccess = BearerAccessControl(
-        "read", listOfNotNull(readSecret, writeSecret).map(BearerAccessControl::utf8),
+        "read", listOfNotNull(readSecret, writeSecret).map(BearerAccessControl::utf8), devMode,
     )
 
     override fun setup(context: GatewayContext) {
@@ -88,12 +96,14 @@ class GatewayHook : AbstractGatewayModuleHook() {
             serverVersion = version,
             instructions = INSTRUCTIONS,
             extraAllowedOrigins = origins,
+            allowAnyOrigin = devMode,
         )
         readOnlyServer = McpServer(
             tools = registry.readOnlyView(),
             serverVersion = version,
             instructions = INSTRUCTIONS,
             extraAllowedOrigins = origins,
+            allowAnyOrigin = devMode,
         )
 
         logger.info(
@@ -151,6 +161,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
                     put("version", moduleVersion())
                     put("platform", "8.1")
                     put("authConfigured", readAccess.configured)
+                    put("devMode", devMode)
                     put("writeEndpointEnabled", writeAccess.configured)
                     put("mcpEndpoint", "/data/${Constants.SHORT_MODULE_ID}/mcp")
                     put("mcpReadOnlyEndpoint", "/data/${Constants.SHORT_MODULE_ID}/mcp-readonly")
@@ -210,6 +221,23 @@ class GatewayHook : AbstractGatewayModuleHook() {
      * wrong is the log. Say so loudly, name the exact property, and never print the value.
      */
     private fun warnAboutSecrets() {
+        if (devMode) {
+            logger.warn(
+                "-D{}=true is set: BOTH {}/mcp and {}/mcp-readonly answer requests carrying no " +
+                    "secret at all, whatever -D{} and -D{} say. That includes run_script, which " +
+                    "is arbitrary Jython in gateway scope — root on this gateway — and " +
+                    "jvm_health, which returns this JVM's -D arguments verbatim, so both secrets " +
+                    "are readable by an unauthenticated caller. The Origin allowlist is off too. " +
+                    "Intended for an isolated dev gateway and nothing else.",
+                DevMode.PROPERTY,
+                "/data/${Constants.SHORT_MODULE_ID}",
+                "/data/${Constants.SHORT_MODULE_ID}",
+                BearerAccessControl.READ_SECRET_PROPERTY,
+                BearerAccessControl.WRITE_SECRET_PROPERTY,
+            )
+            return
+        }
+
         if (!readAccess.configured) {
             logger.error(
                 "Neither -D{} nor -D{} is set: BOTH MCP endpoints will reject every request with " +

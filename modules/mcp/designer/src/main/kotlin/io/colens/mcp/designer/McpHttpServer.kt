@@ -2,6 +2,7 @@ package io.colens.mcp.designer
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpHttpRequest
 import io.colens.mcp.common.McpServer
 import org.slf4j.LoggerFactory
@@ -68,6 +69,17 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         server = http
         boundHost = requestedHost ?: "127.0.0.1"
 
+        if (DevMode.enabled()) {
+            logger.warn(
+                "{} is set: the Designer MCP endpoint on {}:{} accepts requests with no " +
+                    "Authorization header at all, and its Origin allowlist is off. Anything that " +
+                    "can reach this port can read and edit this Designer's project.",
+                DevMode.PROPERTY,
+                boundHost,
+                http.address.port,
+            )
+        }
+
         if (requestedHost != null && !isLoopback(requestedHost)) {
             logger.warn(
                 "Designer MCP endpoint is bound to {}:{} — reachable beyond this machine. The " +
@@ -131,6 +143,7 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
     }
 
     private fun isAuthorized(exchange: HttpExchange): Boolean {
+        if (DevMode.enabled()) return true
         val header = exchange.requestHeaders.getFirst("Authorization") ?: return false
         if (!header.startsWith(BEARER_PREFIX, ignoreCase = true)) return false
         val presented = header.substring(BEARER_PREFIX.length).trim()

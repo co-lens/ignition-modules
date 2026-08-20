@@ -45,6 +45,11 @@ class McpServer(
     private val instructions: String? = null,
     /** Origins permitted in addition to loopback. Loopback and absent Origin are always fine. */
     private val extraAllowedOrigins: Set<String> = emptySet(),
+    /**
+     * Accept every Origin. Set from [io.colens.mcp.common.DevMode] by the hooks rather than read
+     * here, so this class stays free of system properties and its tests stay hermetic.
+     */
+    private val allowAnyOrigin: Boolean = false,
 ) {
 
     fun handle(request: McpHttpRequest): McpHttpResult {
@@ -214,6 +219,7 @@ class McpServer(
         })
 
     private fun isAllowedOrigin(origin: String): Boolean {
+        if (allowAnyOrigin) return true
         if (origin in extraAllowedOrigins) return true
         val host = try {
             URI(origin).host

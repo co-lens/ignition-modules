@@ -2,6 +2,7 @@ package io.colens.mcp.gateway.licensing
 
 import com.inductiveautomation.ignition.common.licensing.LicenseMode
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
+import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpArgumentException
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -259,8 +260,10 @@ class TrialWatchdog private constructor(
         const val MIN_INTERVAL_SECONDS = 5L
         const val MAX_CONSECUTIVE_FAILURES = 3
 
+        /** Either the watchdog's own flag or the dev-mode master switch, which implies it. */
         fun enabled(): Boolean =
-            System.getProperty(ENABLED_PROPERTY)?.trim()?.equals("true", ignoreCase = true) == true
+            System.getProperty(ENABLED_PROPERTY)?.trim()?.equals("true", ignoreCase = true) == true ||
+                DevMode.enabled()
 
         /**
          * Null when the watchdog shouldn't run at all: not asked for, or an activated gateway where
