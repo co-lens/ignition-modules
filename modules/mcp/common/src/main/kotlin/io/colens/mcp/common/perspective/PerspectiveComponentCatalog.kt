@@ -5,6 +5,7 @@ import com.inductiveautomation.ignition.common.gson.JsonObject
 import com.inductiveautomation.ignition.common.jsonschema.JsonSchema
 import com.inductiveautomation.perspective.common.api.ComponentDescriptor
 import com.inductiveautomation.perspective.common.api.ComponentRegistry
+import io.colens.mcp.common.McpJson
 import org.slf4j.LoggerFactory
 
 /**
@@ -122,7 +123,17 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
         for ((type, resource) in BINDING_SCHEMA_RESOURCES) {
             try {
                 loader.getResourceAsStream(resource)?.use { stream ->
-                    found[type] = JsonSchema.parse(stream)
+                    val shipped = McpJson.parse(stream.reader(Charsets.UTF_8).readText())
+                    val patched = BindingSchemaPatches.patch(type, shipped)
+                    if (patched !== shipped) {
+                        logger.debug("Restored declarations Perspective omits from {}", resource)
+                    }
+                    // Back through JsonSchema.parse rather than the public JsonSchema(JsonElement)
+                    // constructor: parse goes via JsonSchemaBuilder, which turns the $ref cache on,
+                    // and the element constructor does not. binding-tag-history.json has $refs.
+                    found[type] = JsonSchema.parse(
+                        McpJson.toString(patched).byteInputStream(Charsets.UTF_8)
+                    )
                 }
             } catch (t: Throwable) {
                 logger.debug("Could not load {}: {}", resource, t.toString())
