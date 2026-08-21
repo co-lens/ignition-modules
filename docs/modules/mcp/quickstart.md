@@ -25,16 +25,16 @@ whichever went out last, and the gateway refuses the wrong one.[^tag]
 <TabItem value="83" label="Ignition 8.3" default>
 
 ```bash
-gh release download mcp-v0.4.1 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-0.4.1.modl*'
-sha256sum -c Ignition-MCP-0.4.1.modl.sha256
+gh release download mcp-v0.5.0 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-0.5.0.modl*'
+sha256sum -c Ignition-MCP-0.5.0.modl.sha256
 ```
 
 </TabItem>
 <TabItem value="81" label="Ignition 8.1">
 
 ```bash
-gh release download mcp81-v0.3.1 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-81-0.3.1.modl*'
-sha256sum -c Ignition-MCP-81-0.3.1.modl.sha256
+gh release download mcp81-v0.4.0 --repo co-lens/ignition-modules --pattern 'Ignition-MCP-81-0.4.0.modl*'
+sha256sum -c Ignition-MCP-81-0.4.0.modl.sha256
 ```
 
 The 8.1 line also **requires Perspective** on the gateway — see
@@ -68,7 +68,7 @@ curl -s http://<gateway>:8088/data/mcp/health
 ```
 
 ```json
-{"status":"ok","server":"ignition-mcp","version":"0.4.1","mcpEndpoint":"/data/mcp/mcp",
+{"status":"ok","server":"ignition-mcp","version":"0.5.0","mcpEndpoint":"/data/mcp/mcp",
  "tools":35,"readOnlyTools":27,"anonymousRead":false,"devMode":false, ...}
 ```
 
