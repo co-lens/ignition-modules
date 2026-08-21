@@ -6,27 +6,31 @@ sidebar_position: 1
 
 # Reaching a Designer on another machine
 
-The bridge binds to loopback on an OS-assigned port, which assumes the MCP client runs on the same
-machine as the Designer. When it doesn't — a Designer in a VM, or on a workstation you're driving
-remotely — two JVM arguments on the Designer opt out of that:
+The bridge binds to loopback on port 8770, which assumes the MCP client runs on the same machine as
+the Designer. When it doesn't — a Designer in a VM, or on a workstation you're driving remotely —
+opt out on the Designer's JVM:
 
 ```
--Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.port=8770
+-Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.secret=<32+ random characters>
 ```
 
-Both default to the safe behaviour, and the module logs a warning when you widen the bind.
+Widening the bind is the case the credential exists for; see the warning below. Add
+`-Dmcp.designer.port=<port>` as well if 8770 is taken or you want a specific one. The module logs a
+warning when you widen the bind, and a louder one when you do it without a secret.
 
 :::note A pinned port is one per machine
-The OS-assigned default is what lets several Designers coexist — each takes a free port and writes
-its own `designer-<pid>.json`. Pin a port only when something needs to forward or firewall it.
-
-A second Designer inherits the same JVM arguments from the launcher, so it asks for the same pinned
-port and can't have it. Rather than lose its endpoint, it warns and takes an OS-assigned port:
+Only the first Designer gets any given port — the rest take a free one and write their own
+`designer-<pid>.json`. That is true of the 8770 default as much as of a pinned port, so a second
+Designer always warns:
 
 ```
-WARN  mcp.Designer.Http -- Port 8770 (-Dmcp.designer.port) is already in use, most likely by
+WARN  mcp.Designer.Http -- Port 8770 (the default) is already in use, most likely by
       another Designer on this machine. Fell back to OS-assigned port 41337. ...
 ```
+
+The message says where the port came from — `the default`, or `-Dmcp.designer.port` if you pinned
+it — so you know whether there is a flag to look for. Pin a genuinely different port per Designer
+when you run several and need each to be addressable.
 
 So a forwarded port reaches whichever Designer started **first**. For the others, read the real
 address off **Tools → MCP Connection Info…**, or pin genuinely different ports per Designer.
@@ -42,6 +46,12 @@ putting the bridge silently back on loopback:
 ```
 
 This has cost two sessions time, and the failure it produces is the one below.
+
+**It now has a sharper edge.** Dropping `-Dmcp.designer.secret` the same way does not put the bridge
+back somewhere safe — it leaves it bound wide with **no credential at all**, and nothing in the
+launcher tells you. No code can catch this: a `bindAddress` set with no secret is indistinguishable
+from an operator who never wanted one. The Designer's startup WARN is the only signal, so read the
+console after changing that field.
 :::
 
 ## When the Designer is in a VM or a container
@@ -79,20 +89,35 @@ or a Designer that never started. Two things tell them apart:
     "host": "127.0.0.1",
     "url": "http://127.0.0.1:41337/mcp",
     "loopbackOnly": true,
-    "hostname": "designer-vm"
+    "hostname": "designer-vm",
+    "auth": "none"
   }
   ```
 
   `loopbackOnly: true` with a `hostname` that isn't the caller's own means the endpoint is up and
   healthy but reachable only from `designer-vm`. A client that reads the file can say so instead of
-  passing a bare connection error along.
+  passing a bare connection error along. `auth` is `none` or `bearer`; when it is `bearer` the
+  `secret` field carries the value to send.
 
-:::warning The bearer secret is the only thing protecting it
-Loopback-only is the right default because the secret in the discovery file is the *sole*
-credential — and under [`-Dmcp.devMode=true`](../endpoints.md#dev-mode) there is no credential at
-all, so never combine dev mode with a widened bind. Once the endpoint is reachable from the network, that secret is all that stands between
-your Designer and anything that can route to it. Pair a widened bind with a firewall rule or a
+:::danger Widening the bind without a secret leaves the endpoint open
+The bridge requires **no credential by default**. That is defensible on loopback; it is not once you
+widen the bind. With `bindAddress` set and no `-Dmcp.designer.secret`, anything that can route to
+this machine can read and edit the open project — and commit it, if
+[`allowSave`](../designer-save.md) is on.
+
+So widening the bind and setting a secret are one step, not two:
+
+```
+-Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.secret=<32+ random characters>
+```
+
+Generate one with `openssl rand -hex 24`. The Designer logs a WARN naming the property when it binds
+wide without one, and an ERROR if `allowSave` is on as well. Pair either with a firewall rule or a
 forwarded port rather than leaving it open, and don't carry this into production.
+
+Note [`-Dmcp.devMode=true`](../endpoints.md#dev-mode) no longer removes this credential — a secret
+you pin is enforced regardless — but it *does* turn off Origin checking, which is what keeps a web
+page out. Still don't combine it with a widened bind.
 :::
 
 ## The advertised host

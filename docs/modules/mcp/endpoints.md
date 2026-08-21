@@ -120,8 +120,11 @@ That removes the whole setup ritual — no API key to create, no custom security
 Gateway Write Permissions, no *Require secure connections* to untick. It also implies
 [`mcp.designer.allowSave`](./designer-save.md) and `mcp.trialWatchdog`, and turns off
 [Origin checking](#origin-checking). Set it on the Designer's JVM too — the Designer runs in its own
-process, so one flag in `ignition.conf` cannot reach it — and its bearer secret stops being required
-as well.
+process, so one flag in `ignition.conf` cannot reach it. Note it no longer touches the Designer
+bridge's credential either way: the bridge requires none by default, and a
+`-Dmcp.designer.secret` you pinned deliberately is still enforced under dev mode. Turning off Origin
+checking on a Designer is the part worth thinking about — that allowlist is what keeps a web page
+out of an endpoint that otherwise needs no credential.
 
 :::danger Dev mode hands the gateway to anyone who can reach the port
 This is a larger step than `allowAnonymousRead`, which only opens the read side. Dev mode opens the
@@ -164,8 +167,9 @@ process table, shared by every client. See [version differences](./versions.md).
 
 `-Dmcp.devMode=true` works on this line too, and does the same thing: both endpoints answer with no
 `Authorization` header at all, whatever the two secrets say, and the Origin allowlist is off. It
-also implies [`mcp.designer.allowSave`](./designer-save.md) and `mcp.trialWatchdog`, and drops the
-Designer bridge's own bearer secret when set on that JVM.
+also implies [`mcp.designer.allowSave`](./designer-save.md) and `mcp.trialWatchdog`. It does **not**
+drop the Designer bridge's credential: the bridge requires none by default, and a pinned
+`-Dmcp.designer.secret` is enforced even under dev mode.
 
 It saves less here than on 8.3 — the credential is already a `-D` property, so it only spares you
 inventing one — and it is correspondingly easier to leave on by accident. `/data/mcp/health`
@@ -195,22 +199,35 @@ or don't issue one at all — the read-only endpoint covers every diagnostic and
 
 ## Designer {#designer}
 
-When a Designer with this module opens a project, it starts a **loopback-only** HTTP endpoint on an
-OS-assigned port and writes `~/.ignition/mcp/designer-<pid>.json` (mode 0600) containing the port
-and a per-session bearer secret. **Tools → MCP Connection Info…** shows the ready-to-paste command:
+When a Designer with this module opens a project, it starts a **loopback-only** HTTP endpoint on
+port **8770** and writes `~/.ignition/mcp/designer-<pid>.json` recording where it landed.
+**Tools → MCP Connection Info…** shows the ready-to-paste command:
 
 ```bash
-claude mcp add --transport http ignition-designer-<project> \
-  http://127.0.0.1:<port>/mcp \
-  --header "Authorization: Bearer <secret>"
+claude mcp add --transport http ignition-designer-<project> http://127.0.0.1:8770/mcp
 ```
 
-The server name carries the project so that a second Designer's command **adds** a server rather
-than overwriting the first one's entry. Several Designers can run at once: each gets its own port,
-its own secret and its own discovery file.
+**No credential by default.** The bridge is loopback-only, and a per-session secret went stale on
+every Designer restart — it cost a re-paste each time and bought nothing a same-UID attacker did not
+already have, since the discovery file holding it was readable by that user anyway. Both halves of
+the old command rotated, in fact: the port was OS-assigned too, so a saved client entry died on the
+next restart no matter what. A fixed port and no credential is what makes the command above worth
+saving.
 
-This is identical on both platform lines — the bridge runs its own server and never touches
-Ignition's authentication, which is why the 8.1 port needed no Designer changes.
+To require a bearer token, set `-Dmcp.designer.secret=<value>` on the Designer's JVM. It is pinned
+by you, so it survives restarts, and the dialog then shows a command carrying it. **Set one whenever
+you widen the bind, and on a shared machine** — loopback is not per-user, so another signed-in user
+cannot read your discovery file but can still reach your port. See
+[Credentials](./credentials.md#designer).
+
+The server name carries the project so that a second Designer's command **adds** a server rather
+than overwriting the first one's entry. Several Designers can run at once: the first takes 8770 and
+the rest fall back to an OS-assigned port with a warning, so take the later ones' addresses from the
+dialog — or pin each with `-Dmcp.designer.port`. `-Dmcp.designer.port=0` restores OS assignment.
+A secret, if you set one, is per-*machine* rather than per-Designer.
+
+This behaves the same on both platform lines — the bridge runs its own server and never touches
+Ignition's authentication.
 
 The Designer's value over the gateway is that writes are **staged, not committed** by default: they appear as
 unsaved Designer changes for a human to review and save. Nothing here writes to the gateway on its
@@ -218,7 +235,8 @@ own.
 
 If the Designer isn't on the same machine as your client, see
 [Reaching a Designer on another machine](./clients/remote-designer.md) — and read the warning
-there, because widening the bind makes that per-session secret the only thing protecting it.
+there, because widening the bind without setting `-Dmcp.designer.secret` leaves the endpoint open to
+anything that can route to it.
 
 ## Origin checking
 

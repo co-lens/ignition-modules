@@ -112,8 +112,15 @@ can reach the port. Issue a real credential instead: [Issue a credential](./cred
 ## Optional: connect a Designer
 
 The gateway sees saved project state; a Designer additionally exposes *unsaved* edits and can build
-Perspective views. Install the same module — it carries both scopes — open a project, then use
-**Tools → MCP Connection Info…** for a ready-to-paste command.
+Perspective views. Install the same module — it carries both scopes — and open a project. On the
+same machine that is the whole setup, with no credential and no flags:
+
+```bash
+claude mcp add --transport http ignition-designer http://127.0.0.1:8770/mcp
+```
+
+**Tools → MCP Connection Info…** shows the exact command, which matters when a second Designer is
+already on 8770. It is stable across restarts, so it is worth saving.
 
 See [the Designer bridge](./endpoints.md#designer), [what it stages rather than
 commits](./designer-save.md), and [Reaching a Designer on another

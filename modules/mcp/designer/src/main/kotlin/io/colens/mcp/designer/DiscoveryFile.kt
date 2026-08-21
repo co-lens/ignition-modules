@@ -1,5 +1,6 @@
 package io.colens.mcp.designer
 
+import io.colens.mcp.common.DesignerAuth
 import io.colens.mcp.common.McpJson
 import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.put
@@ -15,7 +16,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermissions
-import java.security.SecureRandom
 import java.time.Instant
 
 /**
@@ -23,7 +23,7 @@ import java.time.Instant
  *
  * Two files per Designer process, both owner-only:
  *
- *  - `designer-<pid>.json` — port, secret, project, gateway, and where the endpoint is actually
+ *  - `designer-<pid>.json` — port, credential posture, project, gateway, and where the endpoint is actually
  *    reachable from. Written atomically so a reader never sees a half-written file.
  *  - `designer-<pid>.lock` — held under an exclusive [FileLock] for the Designer's lifetime.
  *
@@ -39,8 +39,6 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
     private val pid: Long = ProcessHandle.current().pid()
     private val dataPath: Path = directory.resolve("designer-$pid.json")
     private val lockPath: Path = directory.resolve("designer-$pid.lock")
-
-    val secret: String = generateSecret()
 
     private var lockFile: RandomAccessFile? = null
     private var lockChannel: FileChannel? = null
@@ -74,7 +72,18 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
         }
     }
 
-    fun write(port: Int, host: String, loopbackOnly: Boolean, project: String?, gatewayAddress: String?) {
+    /**
+     * [auth] rather than a bare secret string: the two parameters after it are both `String?`, so a
+     * third would let the project name slide silently into the `secret` field of a 0600 file.
+     */
+    fun write(
+        port: Int,
+        host: String,
+        loopbackOnly: Boolean,
+        auth: DesignerAuth,
+        project: String?,
+        gatewayAddress: String?,
+    ) {
         val json = jsonObject {
             put("pid", pid)
             put("port", port)
@@ -87,7 +96,11 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
             // is the common case rather than the exotic one.
             put("loopbackOnly", loopbackOnly)
             put("hostname", localHostname())
-            put("secret", secret)
+            // The derived answer, beside the raw one, for the same reason `loopbackOnly` sits
+            // beside `host`: a client should branch on "do I need a credential" without having to
+            // infer it from a null.
+            put("auth", if (auth.required) "bearer" else "none")
+            put("secret", auth.secret)
             put("project", project)
             put("gateway", gatewayAddress)
             put("startedAt", Instant.now().toString())
@@ -169,12 +182,6 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
      */
     private fun localHostname(): String? =
         runCatching { InetAddress.getLocalHost().hostName }.getOrNull()
-
-    private fun generateSecret(): String {
-        val bytes = ByteArray(24)
-        SecureRandom().nextBytes(bytes)
-        return bytes.joinToString("") { "%02x".format(it) }
-    }
 
     companion object {
         fun defaultDirectory(): Path =

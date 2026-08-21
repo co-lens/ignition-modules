@@ -144,22 +144,30 @@ installed at all.
 
 ## The Designer tools aren't available
 
-The Designer bridge is a separate endpoint from the gateway's, with its own credential:
+The Designer bridge is a separate endpoint from the gateway's, and by default it needs no
+credential at all:
 
 1. A Designer must be **open with a project loaded**.
-2. Get the connection command from **Tools → MCP Connection Info…** — the port and secret are
-   per-session and change every time the Designer restarts.
+2. Get the connection command from **Tools → MCP Connection Info…**. It is stable across restarts —
+   the bridge defaults to port 8770 and requires no token — so a saved client entry keeps working.
 3. If your client isn't on the same machine as the Designer, the bridge binds to loopback by
    default. See [Reaching a Designer on another machine](./clients/remote-designer.md).
 
-**With a second Designer open**, both endpoints run — each takes its own port, secret and discovery
-file. The connect command is named after the project (`ignition-designer-<project>`) so adding the
-second doesn't overwrite the first. If you pinned `-Dmcp.designer.port`, the second Designer can't
-have that port and warns that it fell back to an OS-assigned one; take its real address from the
-connect dialog.
+**A 401 from the Designer bridge** means exactly one thing: `-Dmcp.designer.secret` is set on that
+Designer's JVM and your client's `Authorization` header doesn't match it. Check the **Auth:** row in
+the connect dialog — it reads `none required` or `bearer`. A bridge with no secret configured never
+returns 401, and ignores a stale header rather than rejecting it.
 
-**On `java.net.BindException: Address already in use`** in the Designer console, a port is pinned
-somewhere. The default is OS-assigned and cannot collide, so check *both* JVM-argument fields in
+**A 415** means your client didn't send `Content-Type: application/json`. The bridge requires it, so
+that a browser cannot reach it with a form-style request.
+
+**With a second Designer open**, both endpoints run, each with its own discovery file. The first
+takes 8770; the second warns that it fell back to an OS-assigned port — take its real address from
+the connect dialog, or pin each Designer with `-Dmcp.designer.port`. The connect command is named
+after the project (`ignition-designer-<project>`) so adding the second doesn't overwrite the first.
+
+**On `java.net.BindException: Address already in use`** in the Designer console, check *both*
+JVM-argument fields in
 `~/.ignition/clientlauncher-data/designer-launcher.json` — the global
 `global.client.defaults.jvm.arguments` **and** the per-application `applications[].jvm.arguments`.
 Clearing one leaves the other in force.

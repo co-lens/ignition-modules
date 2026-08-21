@@ -1,5 +1,6 @@
 package io.colens.mcp.designer
 
+import io.colens.mcp.common.DesignerAuth
 import com.inductiveautomation.ignition.designer.model.DesignerContext
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -17,15 +18,20 @@ import javax.swing.JTextArea
 
 /**
  * Tools-menu entry that shows the ready-to-paste command for connecting a client to this
- * Designer. The port is OS-assigned and the secret rotates per session, so showing the live
- * command here removes any need for a separate discovery CLI.
+ * Designer.
+ *
+ * Neither the port nor the credential rotates any more — the port has a fixed default and the
+ * bridge requires no credential unless one is pinned — so this no longer exists to chase a moving
+ * target. What it still answers, none of which a user can construct from memory: the port actually
+ * bound after a collision fell back, the host the bridge chose, where the discovery file is, the
+ * project-suffixed client name, and whether a credential is needed at all.
  */
 class ConnectDialog(
     private val context: DesignerContext,
     private val endpoint: () -> Endpoint?,
 ) {
 
-    data class Endpoint(val host: String, val port: Int, val secret: String, val discoveryFile: String)
+    data class Endpoint(val host: String, val port: Int, val secret: String?, val discoveryFile: String)
 
     // Note: the listener must not call a method named `show()` — inside `apply` on a JMenuItem
     // that resolves to the deprecated Component.show() instead of ours.
@@ -41,6 +47,10 @@ class ConnectDialog(
      * which carries the PID, so that is the tie-break — a PID in the server name would change on
      * every restart and leave the client full of dead entries.
      */
+    /** The one thing a user wants when their client gets a 401. */
+    private fun authLabel(current: Endpoint): String =
+        if (current.secret == null) "none required" else "bearer (-D${DesignerAuth.SECRET_PROPERTY})"
+
     private fun clientName(): String {
         val slug = context.projectName
             ?.lowercase()
@@ -64,8 +74,10 @@ class ConnectDialog(
 
         val command = buildString {
             append("claude mcp add --transport http ${clientName()} ")
-            append("http://${current.host}:${current.port}/mcp ")
-            append("--header \"Authorization: Bearer ${current.secret}\"")
+            append("http://${current.host}:${current.port}/mcp")
+            // No header at all when none is required. Pasting an unused one is how a dead secret
+            // survives in somebody's client config long after it stopped meaning anything.
+            current.secret?.let { append(" --header \"Authorization: Bearer $it\"") }
         }
 
         val text = JTextArea(command).apply {
@@ -84,6 +96,7 @@ class ConnectDialog(
                     layout = BoxLayout(this, BoxLayout.Y_AXIS)
                     add(JLabel("<html><b>Project:</b> ${context.projectName}</html>"))
                     add(JLabel("<html><b>Endpoint:</b> http://${current.host}:${current.port}/mcp</html>"))
+                    add(JLabel("<html><b>Auth:</b> ${authLabel(current)}</html>"))
                     add(JLabel("<html><b>Discovery file:</b> ${current.discoveryFile}</html>"))
                 },
                 BorderLayout.NORTH,

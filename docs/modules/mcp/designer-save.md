@@ -31,9 +31,14 @@ to already know.
 
 :::warning This removes the review step, which is the Designer scope's whole point
 With it on, a connected client can commit whatever it has staged, to a real project, with nobody
-looking. The gateway's write tools are guarded by a credential; this is guarded by nothing except
-having been switched on, because a client that can reach the Designer bridge already holds its
-per-session secret.
+looking. The gateway's write tools are guarded by a credential; this is guarded by **the bind** —
+loopback by default, so same machine only — plus having been switched on deliberately.
+
+That is enough on a single-user workstation. It is not enough in one combination:
+`allowSave` **and** a widened bind **and** no `-Dmcp.designer.secret`. There, anything that can route
+to the machine can commit to your gateway. The Designer logs an **ERROR** naming both properties when
+it starts in that state — the only ERROR this module logs for configuration, so it is meant to stand
+out. Set a secret, or don't widen the bind.
 
 It logs a WARN under `mcp.Designer` at startup naming the property. Turn it on for a Designer that
 is genuinely unattended; not for one somebody is sitting at.

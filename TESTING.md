@@ -128,24 +128,27 @@ field replaces rather than appends), pinning a different port per line:
 ```
 
 `-Dmcp.devMode=true` implies `mcp.designer.allowSave`, so `save_project` registers without a fourth
-argument. Take each bearer secret from **Tools → MCP Connection Info…**; it rotates per session.
+argument. **No bearer secret is needed** — the bridge requires no credential unless
+`-Dmcp.designer.secret` is set, and it no longer rotates anything. Expect an ERROR on startup naming
+`save_project`: that configuration is bound wide, credential-less and save-enabled, which is exactly
+what that line is for. Not a regression.
 
 Then drive the bridge from inside the container's network namespace:
 
 ```bash
-des() {  # des <port> <secret> <tool> <json-args>
+des() {  # des <port> <tool> <json-args>
   python3 -c "
 import json,sys
 print(json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/call',
-                  'params':{'name':sys.argv[1],'arguments':json.loads(sys.argv[2])}}))" "$3" "$4" > /tmp/_b.json
+                  'params':{'name':sys.argv[1],'arguments':json.loads(sys.argv[2])}}))" "$2" "$3" > /tmp/_b.json
   docker cp /tmp/_b.json omarchy-windows:/tmp/_b.json >/dev/null
   docker exec omarchy-windows curl -s --max-time 90 -X POST "http://172.31.0.2:$1/mcp" \
-    -H 'Content-Type: application/json' -H "Authorization: Bearer $2" -d @/tmp/_b.json \
+    -H 'Content-Type: application/json' -d @/tmp/_b.json \
     | python3 -m json.tool
 }
 ```
 
-Three traps, each of which has cost a session:
+Five traps, each of which has cost a session:
 
 - **`172.31.0.2` means two different machines.** This host has its own Docker bridge on
   172.31.0.0/16, so probing that address *from the host* answers from an Ignition gateway container
@@ -154,6 +157,15 @@ Three traps, each of which has cost a session:
   `/dev/tcp` is a bash builtin. Use `curl`, which the image has.
 - **The connect dialog shows `0.0.0.0`.** That is what the bridge bound to, not an address to
   connect to.
+
+- **A Designer caches the module at launch.** After rebuilding and restarting a gateway, an
+  already-open Designer keeps serving the *old* module — its bridge answers normally and nothing
+  announces the staleness. On 2026-08-21 the only tell was the wording of a refusal message.
+  Relaunch every Designer after a rebuild, before trusting anything the bridge says.
+- **Don't trust the port-to-line convention.** 8770/8771 is only whatever was typed into each
+  launcher, and on 2026-08-21 they were attached the opposite way round from these labels. Confirm
+  which gateway a bridge is on by comparing its `perspective_list_views` against each gateway's own
+  view list — `sizeBytes` makes them easy to tell apart — before concluding which line you tested.
 
 The Designer launcher installed on the Linux host does not work. Don't reach for it.
 
@@ -343,16 +355,18 @@ need in one value, since the launcher's field replaces rather than appends:
 -Dmcp.designer.bindAddress=0.0.0.0;-Dmcp.designer.port=8770;-Dmcp.designer.allowSave=true
 ```
 
-**Don't pin the port to run two Designers.** The default is OS-assigned and already handles two —
-`-Dmcp.designer.port` exists for forwarding or firewalling, and the launcher hands the *same* value
-to every Designer of that application. A second Designer asking for a taken port now warns and falls
-back rather than dying, so if you do run two with the line above, expect this on the second one and
-take its address from **Tools → MCP Connection Info…**:
+**Pin the port when you run two Designers.** The default is a fixed 8770, so two Designers no longer
+sort themselves out: the first takes it and the second falls back to an OS-assigned port. The
+launcher hands the *same* value to every Designer of that application, so give each line its own
+port as above. Either way the second warns rather than dying, and the message says whether the port
+came from a flag or the default:
 
 ```
 WARN  mcp.Designer.Http -- Port 8770 (-Dmcp.designer.port) is already in use ... Fell back to
       OS-assigned port 41337.
 ```
+
+Take the fallback address from **Tools → MCP Connection Info…**.
 
 **Fail if** the second Designer logs `java.net.BindException` and its connect dialog reports the
 endpoint is not running — that is the regression this replaced.

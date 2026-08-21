@@ -65,9 +65,11 @@ curl -s -X POST http://localhost:18088/data/mcp/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-It also implies `-Dmcp.designer.allowSave=true` and `-Dmcp.trialWatchdog=true`. Pass it to the
-Designer's JVM as well if you want the Designer bridge to skip its bearer secret — that is a
-separate process, so the gateway's flag does not reach it.
+It also implies `-Dmcp.designer.allowSave=true` and `-Dmcp.trialWatchdog=true`. The Designer runs in
+a separate process, so the gateway's flag does not reach it — pass it to the Designer's JVM too if
+you want `save_project` registered there. You no longer need it for the Designer *credential*: that
+bridge requires none by default, and a `-Dmcp.designer.secret` you set on purpose is enforced even
+under dev mode.
 
 :::danger Dev gateways only
 This opens the **write** endpoint, which carries `run_script` — arbitrary Jython in gateway scope,

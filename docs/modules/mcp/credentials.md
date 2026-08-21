@@ -97,3 +97,37 @@ If neither is set, both endpoints reject everything with 401 and the gateway log
 
 </TabItem>
 </Tabs>
+
+## The Designer bridge — optional {#designer}
+
+Everything above is the **gateway**. The Designer bridge is a separate endpoint in a separate
+process, it behaves the same on both platform lines, and **it requires no credential by default**.
+
+That is deliberate. It binds to loopback, and the per-session secret it used to mint was regenerated
+on every Designer start — so a saved client entry broke on the next restart, and it protected
+nothing a same-UID attacker did not already have, since the discovery file holding it was readable
+by that user anyway.
+
+Set one when the default assumption stops holding:
+
+```
+-Dmcp.designer.secret=<32+ random characters>
+```
+
+Generate one with `openssl rand -hex 24`, and set it on the **Designer's** JVM — the gateway's
+configuration cannot reach it. Two cases call for it:
+
+- **You widened the bind.** `-Dmcp.designer.bindAddress` without a secret leaves the project
+  readable and editable by anything that can route to the machine. The Designer logs a WARN naming
+  the property, and an ERROR if [`allowSave`](./designer-save.md) is on as well.
+- **You are on a shared machine.** Loopback is not per-user. On an RDS host or a jump box another
+  signed-in user cannot read your discovery file, but can still reach your port. Without a secret,
+  "same user" becomes "same machine".
+
+Like the 8.1 gateway secrets, it is visible in the process table to any local user, and changing it
+needs a Designer restart. Unlike them, no tool reads it back out through the endpoint. A shorter
+value than 32 characters is warned about but still honoured — it is your call.
+
+`-Dmcp.devMode=true` does **not** override it: a secret you pin is enforced regardless. Dev mode does
+turn off Origin checking on the Designer, which is what otherwise keeps a web page away from a
+credential-less bridge.

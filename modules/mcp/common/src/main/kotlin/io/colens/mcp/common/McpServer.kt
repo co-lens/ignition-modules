@@ -9,6 +9,8 @@ data class McpHttpRequest(
     val method: String,
     val body: String? = null,
     val origin: String? = null,
+    /** Defaulted so existing callers and tests keep compiling; see `McpServer.handle`. */
+    val contentType: String? = null,
 )
 
 data class McpHttpResult(
@@ -97,7 +99,24 @@ class McpServer(
         }
 
         return when (request.method.uppercase()) {
-            "POST" -> handlePost(request.body)
+            "POST" -> {
+                // A cross-origin POST of application/json is preflighted, and the 405 below kills
+                // the preflight. But a page can dodge preflight entirely with a *simple* request —
+                // text/plain carrying a JSON-RPC body — and land here. The Origin check above stops
+                // that today; requiring the correct content type means it is not the only thing
+                // that does, which matters because dev mode turns the Origin allowlist off.
+                if (!isJsonContentType(request.contentType)) {
+                    report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
+                    return McpHttpResult(
+                        status = 415,
+                        body = errorEnvelope(
+                            JsonRpcErrors.INVALID_REQUEST,
+                            "Content-Type must be application/json",
+                        ),
+                    )
+                }
+                handlePost(request.body)
+            }
             // Not an error the client needs to recover from — just tell it what we support.
             "GET", "DELETE" -> {
                 report(UNKNOWN_METHOD, McpOutcome.PROTOCOL_ERROR)
@@ -300,6 +319,12 @@ class McpServer(
                 put("message", message)
             })
         })
+
+    /** Prefix match so `application/json; charset=utf-8` passes. */
+    private fun isJsonContentType(contentType: String?): Boolean {
+        val value = contentType?.substringBefore(';')?.trim() ?: return false
+        return value.equals("application/json", ignoreCase = true)
+    }
 
     private fun isAllowedOrigin(origin: String): Boolean {
         if (allowAnyOrigin) return true

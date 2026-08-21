@@ -2,6 +2,7 @@ package io.colens.mcp.designer
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import io.colens.mcp.common.DesignerAuth
 import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpHttpRequest
 import io.colens.mcp.common.McpServer
@@ -10,7 +11,6 @@ import java.net.BindException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadPoolExecutor
 
@@ -29,7 +29,7 @@ import java.util.concurrent.ThreadPoolExecutor
  * still written to the discovery file, so the command [ConnectDialog] shows keeps working — it
  * just stops being checked.
  */
-class McpHttpServer(private val mcp: McpServer, private val secret: String) {
+class McpHttpServer(private val mcp: McpServer, private val auth: DesignerAuth) {
 
     private val logger = LoggerFactory.getLogger("mcp.Designer.Http")
     private var server: HttpServer? = null
@@ -69,7 +69,7 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         val requestedHost = System.getProperty(BIND_ADDRESS_PROPERTY)?.trim()?.takeIf { it.isNotEmpty() }
         // Port 0 lets the OS pick a free port atomically — no scan loop, no bind races. A fixed
         // port only makes sense when someone needs to forward or firewall it.
-        val requestedPort = System.getProperty(PORT_PROPERTY)?.trim()?.toIntOrNull() ?: 0
+        val requestedPort = System.getProperty(PORT_PROPERTY)?.trim()?.toIntOrNull() ?: DEFAULT_PORT
 
         val address = if (requestedHost == null) {
             InetSocketAddress(InetAddress.getLoopbackAddress(), requestedPort)
@@ -88,30 +88,68 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         loopbackOnly = requestedHost == null || isLoopback(requestedHost)
 
         if (DevMode.enabled()) {
+            // No longer mentions the Authorization header: no credential is the default now, so
+            // saying so here would imply dev mode is what removed it. These are what it still does.
             logger.warn(
-                "{} is set: the Designer MCP endpoint on {}:{} accepts requests with no " +
-                    "Authorization header at all, and its Origin allowlist is off. Anything that " +
-                    "can reach this port can read and edit this Designer's project.",
+                "{} is set: the Designer MCP endpoint on {}:{} has its Origin allowlist off and " +
+                    "registers save_project. A pinned {} is still enforced.",
                 DevMode.PROPERTY,
                 boundHost,
                 http.address.port,
+                DesignerAuth.SECRET_PROPERTY,
             )
         }
 
-        if (!loopbackOnly) {
+        if (auth.secretIsShort) {
             logger.warn(
-                "Designer MCP endpoint is bound to {}:{} — reachable beyond this machine. The " +
-                    "bearer secret in the discovery file is the only thing protecting it; restrict " +
-                    "access with a firewall rule or a forwarded port.",
+                "-D{} is {} characters; {}+ random characters is the recommendation. Not enforced.",
+                DesignerAuth.SECRET_PROPERTY,
+                auth.secret?.length,
+                DesignerAuth.MIN_SECRET_LENGTH,
+            )
+        }
+
+        if (!loopbackOnly && !auth.required) {
+            // The loud one. Widening the bind used to hand you a credential by accident; now it
+            // hands you an open endpoint by accident, so this names the fix before the mitigation.
+            logger.warn(
+                "Designer MCP endpoint is bound to {}:{} and requires NO credential. Anything " +
+                    "that can route to this machine can read and edit this Designer's project. " +
+                    "Set -D{}=<32+ random characters>, or drop -D{} to return to loopback. Pair " +
+                    "either with a firewall rule or a forwarded port.",
                 boundHost,
                 http.address.port,
+                DesignerAuth.SECRET_PROPERTY,
+                BIND_ADDRESS_PROPERTY,
             )
-        } else {
+        } else if (!loopbackOnly) {
+            logger.warn(
+                "Designer MCP endpoint is bound to {}:{} — reachable beyond this machine. The " +
+                    "bearer secret from -D{} is the only thing protecting it; restrict access " +
+                    "with a firewall rule or a forwarded port.",
+                boundHost,
+                http.address.port,
+                DesignerAuth.SECRET_PROPERTY,
+            )
+        } else if (!auth.required) {
+            // INFO, not WARN: this is the default for every Designer on earth, and a warning
+            // nobody can act on is how the one above gets ignored.
             logger.info(
-                "Designer MCP endpoint listening on http://{}:{}{}",
+                "Designer MCP endpoint listening on http://{}:{}{} — no credential required, " +
+                    "reachable only from this machine. Note loopback is not per-user: on a shared " +
+                    "machine, set -D{} to require a bearer token.",
                 boundHost,
                 http.address.port,
                 path,
+                DesignerAuth.SECRET_PROPERTY,
+            )
+        } else {
+            logger.info(
+                "Designer MCP endpoint listening on http://{}:{}{} — bearer auth on (-D{}).",
+                boundHost,
+                http.address.port,
+                path,
+                DesignerAuth.SECRET_PROPERTY,
             )
         }
         return http.address.port
@@ -134,13 +172,20 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
             if (requestedPort == 0) throw e
 
             val fallback = HttpServer.create(InetSocketAddress(address.address, 0), 0)
+            // Say where the port came from. Since DEFAULT_PORT exists, naming -Dmcp.designer.port
+            // unconditionally would send people hunting for a flag they never passed — and with a
+            // fixed default this message fires for the second of any two Designers, so it is no
+            // longer the rare case it was written for.
+            val source =
+                if (System.getProperty(PORT_PROPERTY)?.trim()?.toIntOrNull() != null) "-D$PORT_PROPERTY"
+                else "the default"
             logger.warn(
-                "Port {} (-D{}) is already in use, most likely by another Designer on this " +
+                "Port {} ({}) is already in use, most likely by another Designer on this " +
                     "machine. Fell back to OS-assigned port {}. Anything forwarding or " +
                     "firewalling {} will not reach THIS Designer — see Tools -> MCP Connection " +
                     "Info... for its real address.",
                 requestedPort,
-                PORT_PROPERTY,
+                source,
                 fallback.address.port,
                 requestedPort,
             )
@@ -163,7 +208,7 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
     private fun handle(exchange: HttpExchange) {
         try {
             if (!isAuthorized(exchange)) {
-                respond(exchange, 401, """{"error":"Unauthorized"}""", "application/json")
+                respondUnauthorized(exchange)
                 return
             }
 
@@ -178,6 +223,7 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
                     method = exchange.requestMethod,
                     body = body,
                     origin = exchange.requestHeaders.getFirst("Origin"),
+                    contentType = exchange.requestHeaders.getFirst("Content-Type"),
                 )
             )
 
@@ -191,15 +237,25 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
         }
     }
 
-    private fun isAuthorized(exchange: HttpExchange): Boolean {
-        if (DevMode.enabled()) return true
-        val header = exchange.requestHeaders.getFirst("Authorization") ?: return false
-        if (!header.startsWith(BEARER_PREFIX, ignoreCase = true)) return false
-        val presented = header.substring(BEARER_PREFIX.length).trim()
-        // Constant-time compare so the secret can't be recovered by timing the loopback endpoint.
-        return MessageDigest.isEqual(
-            presented.toByteArray(StandardCharsets.UTF_8),
-            secret.toByteArray(StandardCharsets.UTF_8),
+    /**
+     * Deliberately not short-circuited by [DevMode]. With no credential required by default, the
+     * only thing a dev-mode bypass could still do here is ignore a secret an operator pinned on
+     * purpose — which is the wrong way round. Dev mode keeps its other effects.
+     */
+    private fun isAuthorized(exchange: HttpExchange): Boolean =
+        auth.authorize(exchange.requestHeaders.getFirst("Authorization"))
+
+    /**
+     * JSON-RPC shaped rather than a bare `{"error":...}` so a client parsing the failure gets a
+     * structured error, and carrying the same realm the 8.1 gateway uses.
+     */
+    private fun respondUnauthorized(exchange: HttpExchange) {
+        exchange.responseHeaders.set("WWW-Authenticate", "Bearer realm=\"ignition-mcp\"")
+        respond(
+            exchange,
+            401,
+            """{"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"Unauthorized"}}""",
+            "application/json",
         )
     }
 
@@ -215,8 +271,6 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
     }
 
     companion object {
-        private const val BEARER_PREFIX = "Bearer "
-
         /** Opt in to binding beyond loopback, e.g. `0.0.0.0` for a Designer in a VM. */
         const val BIND_ADDRESS_PROPERTY = "mcp.designer.bindAddress"
 
@@ -225,5 +279,14 @@ class McpHttpServer(private val mcp: McpServer, private val secret: String) {
          * back to it — with a warning — when the pinned port is already taken.
          */
         const val PORT_PROPERTY = "mcp.designer.port"
+
+        /**
+         * Where the bridge listens when nothing pins it. Fixed rather than OS-assigned so a client
+         * configuration survives a Designer restart — an OS-assigned port went stale exactly as
+         * surely as the old per-session secret did, and fixing only the credential would have left
+         * every saved client entry pointing at a dead port. Already the number every example in
+         * the docs uses. `-Dmcp.designer.port=0` restores OS assignment.
+         */
+        const val DEFAULT_PORT = 8770
     }
 }
