@@ -189,6 +189,33 @@ class ViewDocumentTest : StringSpec({
         d.component("root/Inner").getAsJsonObject("events").optString("marker") shouldBe "y"
     }
 
+    // -- issue #7: a view-level propConfig entry must be readable back --------
+
+    "propConfigEntryOrNull resolves a view-level entry through every view alias" {
+        val d = doc()
+        d.propConfigEntry("view", "custom.viewLevel").addProperty("marker", "x")
+
+        listOf("view", "", ".", " VIEW ").forEach { alias ->
+            d.propConfigEntryOrNull(alias, "custom.viewLevel")
+                .shouldNotBeNull()
+                .optString("marker") shouldBe "x"
+        }
+    }
+
+    "propConfigEntryOrNull returns null rather than throwing for an absent view-level key" {
+        doc().propConfigEntryOrNull("view", "params.deviceId") shouldBe null
+    }
+
+    "propConfigEntryOrNull still resolves a component entry" {
+        doc().propConfigEntryOrNull("root/Title", "props.text").shouldNotBeNull()
+            .has("binding").shouldBeTrue()
+    }
+
+    "eventGroupOrNull explains that events are not view-level" {
+        shouldThrow<McpArgumentException> { doc().eventGroupOrNull("view", "dom") }
+            .message.shouldNotBeNull() shouldContain "not the view"
+    }
+
     "view paths address the view document, not a component" {
         val d = doc()
         ViewDocument.isViewPath("").shouldBeTrue()

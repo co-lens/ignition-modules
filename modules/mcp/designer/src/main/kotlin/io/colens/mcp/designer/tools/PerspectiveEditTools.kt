@@ -15,6 +15,7 @@ import io.colens.mcp.common.optString
 import io.colens.mcp.common.perspective.ComponentCatalog
 import io.colens.mcp.common.perspective.PerspectiveComponentCatalog
 import io.colens.mcp.common.perspective.PerspectiveReadTools
+import io.colens.mcp.common.perspective.TransformShapes
 import io.colens.mcp.common.Severity
 import io.colens.mcp.common.perspective.ViewDocument
 import io.colens.mcp.common.perspective.ViewSource
@@ -465,7 +466,9 @@ class PerspectiveEditTools(private val context: DesignerContext) {
         description = "Binds a property. The binding is written to propConfig (never into props, " +
             "which is where hand-written views usually go wrong) and its config is validated " +
             "against Perspective's schema for that binding type before anything is staged. " +
-            "For a bidirectional tag binding put 'bidirectional': true inside config, not beside it.",
+            "For a bidirectional tag binding put 'bidirectional': true inside config, not beside it. " +
+            "Transforms are checked too \u2014 a transform's keys sit INLINE beside its 'type', with " +
+            "no 'config' wrapper, and one written binding-style is rejected rather than saved inert.",
         inputSchema = schema {
             viewArgs(this)
             string("path", "Component path, or 'view' for a view-level property.", required = true)
@@ -477,7 +480,13 @@ class PerspectiveEditTools(private val context: DesignerContext) {
             }, required = true)
             array("transforms", "Optional transforms applied in order.", items = jsonObject {
                 put("type", "object")
-                put("description", "A transform, e.g. {\"type\": \"format\", \"config\": {...}}.")
+                put(
+                    "description",
+                    "A transform. Unlike a binding it has NO 'config' wrapper: its keys are inline " +
+                        "siblings of 'type'. E.g. {\"type\": \"expression\", \"expression\": " +
+                        "\"{value} = 8\"} or {\"type\": \"format\", \"formatType\": \"numeric\", " +
+                        "\"formatValue\": \"0.00\"}.",
+                )
             })
             boolean("enabled", "Whether the binding is active.", default = true)
         },
@@ -505,10 +514,13 @@ class PerspectiveEditTools(private val context: DesignerContext) {
                     }
                 }
 
+                val transforms = args.get("transforms")?.takeIf { it.isJsonArray }?.asJsonArray
+                transforms?.forEachIndexed { i, element -> validateTransform(element, i) }
+
                 val binding = jsonObject {
                     put("type", type)
                     put("config", config)
-                    args.get("transforms")?.takeIf { it.isJsonArray }?.let { put("transforms", it) }
+                    transforms?.let { put("transforms", it) }
                     args.get("enabled")?.takeIf { !it.isJsonNull && !it.asBoolean }?.let {
                         put("enabled", false)
                     }
@@ -518,6 +530,44 @@ class PerspectiveEditTools(private val context: DesignerContext) {
             }
         },
     )
+
+    /**
+     * Refuses a transform Perspective would accept and then ignore.
+     *
+     * The view validator catches this too, but not reliably here: its refusal only fires on an
+     * error the edit *introduces*, so re-setting a binding whose previous transform was malformed
+     * the same way produces an identical finding and slips through as pre-existing. Checking the
+     * argument before anything is staged also puts the correction in front of the caller instead
+     * of inside a findings list.
+     */
+    private fun validateTransform(element: JsonElement, index: Int) {
+        if (!element.isJsonObject) {
+            throw McpArgumentException("Transform $index must be an object.")
+        }
+        val transform = element.asJsonObject
+        val type = TransformShapes.typeOf(transform)
+            ?: throw McpArgumentException(
+                "Transform $index has no 'type'. Known types: " +
+                    TransformShapes.knownTypes().sorted().joinToString(", ") + "."
+            )
+
+        val missing = TransformShapes.missingKeys(transform)
+        if (missing.isNotEmpty()) {
+            throw McpArgumentException(
+                "Transform $index (type '$type') is missing " +
+                    missing.joinToString(", ") { "'$it'" } + ". " + TransformShapes.fixFor(transform)
+            )
+        }
+
+        catalog.validateTransform(type, transform)?.let { violations ->
+            if (violations.isNotEmpty()) {
+                throw McpArgumentException(
+                    "Invalid '$type' transform at index $index: " +
+                        violations.joinToString("; ") { it.message }
+                )
+            }
+        }
+    }
 
     private fun deleteBinding() = Tool(
         name = "perspective_delete_binding",

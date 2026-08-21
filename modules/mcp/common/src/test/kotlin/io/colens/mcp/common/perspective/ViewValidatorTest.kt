@@ -1,14 +1,17 @@
 package io.colens.mcp.common.perspective
 
 import com.inductiveautomation.ignition.common.gson.JsonObject
+import io.colens.mcp.common.Severity
 import io.colens.mcp.common.optString
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 
 /** Stands in for Perspective's registry so the catalog-driven checks are testable offline. */
 private class FakeCatalog(
@@ -16,6 +19,8 @@ private class FakeCatalog(
     private val badProps: List<SchemaViolation> = emptyList(),
     private val bindings: Set<String> = setOf("tag", "expr", "property"),
     private val badBindingConfig: List<SchemaViolation> = emptyList(),
+    private val transforms: Set<String> = setOf("expression", "format"),
+    private val badTransform: List<SchemaViolation> = emptyList(),
 ) : ComponentCatalog {
     override fun componentTypes() = types
     override fun categories() = setOf("Containers", "Display")
@@ -24,6 +29,9 @@ private class FakeCatalog(
     override fun validateBindingConfig(bindingType: String, config: JsonObject) =
         if (bindingType in bindings) badBindingConfig else null
     override fun bindingTypes() = bindings
+    override fun validateTransform(transformType: String, transform: JsonObject) =
+        if (transformType in transforms) badTransform else null
+    override fun transformTypes() = transforms
 }
 
 class ViewValidatorTest : StringSpec({
@@ -199,6 +207,75 @@ class ViewValidatorTest : StringSpec({
             )
         )
         codes(root, FakeCatalog()) shouldContain "invalid_transform"
+    }
+
+    // -- transform shape (issue #6) -----------------------------------------
+
+    fun transformed(transform: String) = container(
+        label(
+            """"propConfig": { "props.text": { "binding": {
+                 "type": "tag", "config": { "tagPath": "[default]A" }, "transforms": [ $transform ] } } }"""
+        )
+    )
+
+    "an expression transform nested under config is an error naming the wrapper" {
+        val f = findings(
+            transformed("""{ "type": "expression", "config": { "expression": "{value} = 8" } }"""),
+            FakeCatalog(),
+        ).first { it.code == "missing_transform_key" }
+
+        f.message shouldContain "'expression'"
+        f.fix.shouldNotBeNull() shouldContain "no 'config' wrapper"
+        f.fix.shouldNotBeNull() shouldContain """{"type": "expression", "expression": "{value} = 8"}"""
+    }
+
+    "the inline expression transform is clean" {
+        codes(transformed("""{ "type": "expression", "expression": "!{value}" }"""), FakeCatalog())
+            .shouldNotContain("missing_transform_key")
+    }
+
+    "a script transform without code is an error even with no catalog" {
+        val f = findings(transformed("""{ "type": "script" }""")).first {
+            it.code == "missing_transform_key"
+        }
+        f.message shouldContain "'code'"
+        // Perspective ships no transform-script.json, so TransformShapes is the only cover here.
+        f.fix.shouldNotBeNull() shouldContain "inline siblings"
+    }
+
+    "a format transform missing formatValue names every key it needs" {
+        val f = findings(transformed("""{ "type": "format", "formatType": "numeric" }"""), FakeCatalog())
+            .first { it.code == "missing_transform_key" }
+        f.message shouldContain "'formatValue'"
+        f.message shouldNotContain "'formatType'"
+    }
+
+    "a schema violation on a well-shaped transform is reported" {
+        val catalog = FakeCatalog(
+            badTransform = listOf(SchemaViolation(null, null, "formatValue: not a known format")),
+        )
+        val f = findings(
+            transformed("""{ "type": "format", "formatType": "numeric", "formatValue": "nope" }"""),
+            catalog,
+        ).first { it.code == "invalid_transform_config" }
+        f.message shouldContain "not a known format"
+    }
+
+    "an unrecognised transform type warns rather than failing the view" {
+        val f = findings(transformed("""{ "type": "nonesuch" }"""), FakeCatalog())
+            .first { it.code == "unknown_transform_type" }
+        f.severity shouldBe Severity.WARNING
+        f.fix.shouldNotBeNull() shouldContain "script"
+    }
+
+    "script is known even though no schema ships for it" {
+        codes(transformed("""{ "type": "script", "code": "\tdef transform(self, value): pass" }"""), FakeCatalog())
+            .shouldNotContain("unknown_transform_type")
+    }
+
+    "a transform with no catalog is still shape-checked but never type-warned" {
+        val codes = codes(transformed("""{ "type": "nonesuch" }"""))
+        codes.shouldNotContain("unknown_transform_type")
     }
 
     // -- custom property references -----------------------------------------

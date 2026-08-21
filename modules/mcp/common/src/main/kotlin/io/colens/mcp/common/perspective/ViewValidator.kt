@@ -263,10 +263,68 @@ class ViewValidator(private val catalog: ComponentCatalog = NoComponentCatalog) 
         }
 
         binding.getAsJsonArrayOrNull("transforms")?.forEachIndexed { i, transform ->
-            if (!transform.isJsonObject || !transform.asJsonObject.has("type")) {
+            if (!transform.isJsonObject) {
                 findings += Finding(
                     path, "invalid_transform", Severity.ERROR,
-                    "Transform $i on '$propertyKey' has no 'type'.",
+                    "Transform $i on '$propertyKey' is not an object.",
+                )
+                return@forEachIndexed
+            }
+            checkTransform(transform.asJsonObject, i, propertyKey, path, findings)
+        }
+    }
+
+    /**
+     * A transform's keys are inline siblings of its `type` — Perspective hands the whole transform
+     * object to the factory and there is no `config` wrapper. Written binding-style instead, the
+     * transform saves clean and then silently passes its input straight through, which is the one
+     * failure this check exists for. See [TransformShapes].
+     */
+    private fun checkTransform(
+        transform: JsonObject,
+        index: Int,
+        propertyKey: String,
+        path: String,
+        findings: MutableList<Finding>,
+    ) {
+        val type = TransformShapes.typeOf(transform)
+        if (type == null) {
+            findings += Finding(
+                path, "invalid_transform", Severity.ERROR,
+                "Transform $index on '$propertyKey' has no 'type'.",
+            )
+            return
+        }
+
+        val missing = TransformShapes.missingKeys(transform)
+        if (missing.isNotEmpty()) {
+            findings += Finding(
+                path, "missing_transform_key", Severity.ERROR,
+                "Transform $index on '$propertyKey' (type '$type') is missing " +
+                    missing.joinToString(", ") { "'$it'" } + ".",
+                TransformShapes.fixFor(transform),
+            )
+            // The schema would only restate the same absent keys, and its wording is the less
+            // useful of the two.
+            return
+        }
+
+        when (val violations = catalog.validateTransform(type, transform)) {
+            null -> {
+                val known = catalog.transformTypes() + TransformShapes.knownTypes()
+                if (catalog.transformTypes().isNotEmpty() && type !in known) {
+                    findings += Finding(
+                        path, "unknown_transform_type", Severity.WARNING,
+                        "'$type' is not a transform type this gateway can validate.",
+                        "Known types: ${known.sorted().joinToString(", ")}.",
+                    )
+                }
+            }
+            else -> violations.forEach { violation ->
+                findings += Finding(
+                    path, "invalid_transform_config", Severity.ERROR,
+                    "Transform $index on '$propertyKey' (type '$type'): ${violation.message}",
+                    TransformShapes.fixFor(transform),
                 )
             }
         }
