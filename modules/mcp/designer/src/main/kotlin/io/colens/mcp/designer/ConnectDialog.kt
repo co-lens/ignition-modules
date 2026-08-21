@@ -17,7 +17,9 @@ import javax.swing.JTextArea
 
 /**
  * Tools-menu entry that shows the ready-to-paste command for connecting a client to this
- * Designer. The port is OS-assigned and the secret rotates per session, so showing the live
+ * Designer. Neither the port nor the credential rotates any more, so this is no longer chasing a
+ * moving target — it answers the port actually bound after a collision fell back, the host chosen,
+ * where the discovery file is, and whether a credential is needed. The live
  * command here removes any need for a separate discovery CLI.
  */
 class ConnectDialog(
@@ -25,7 +27,7 @@ class ConnectDialog(
     private val endpoint: () -> Endpoint?,
 ) {
 
-    data class Endpoint(val host: String, val port: Int, val secret: String, val discoveryFile: String)
+    data class Endpoint(val host: String, val port: Int, val secret: String?, val discoveryFile: String)
 
     // Note: the listener must not call a method named `show()` — inside `apply` on a JMenuItem
     // that resolves to the deprecated Component.show() instead of ours.
@@ -47,8 +49,10 @@ class ConnectDialog(
 
         val command = buildString {
             append("claude mcp add --transport http ignition-designer ")
-            append("http://${current.host}:${current.port}/mcp ")
-            append("--header \"Authorization: Bearer ${current.secret}\"")
+            append("http://${current.host}:${current.port}/mcp")
+            // No header at all when none is required. Pasting an unused one is how a dead secret
+            // survives in somebody's client config long after it stopped meaning anything.
+            current.secret?.let { append(" --header \"Authorization: Bearer $it\"") }
         }
 
         val text = JTextArea(command).apply {

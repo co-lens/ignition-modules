@@ -1,5 +1,6 @@
 package io.colens.mcp.designer
 
+import io.colens.mcp.common.DesignerAuth
 import io.colens.mcp.common.McpJson
 import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.put
@@ -14,7 +15,6 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermissions
-import java.security.SecureRandom
 import java.time.Instant
 
 /**
@@ -38,8 +38,6 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
     private val pid: Long = ProcessHandle.current().pid()
     private val dataPath: Path = directory.resolve("designer-$pid.json")
     private val lockPath: Path = directory.resolve("designer-$pid.lock")
-
-    val secret: String = generateSecret()
 
     private var lockFile: RandomAccessFile? = null
     private var lockChannel: FileChannel? = null
@@ -73,13 +71,20 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
         }
     }
 
-    fun write(port: Int, host: String, project: String?, gatewayAddress: String?) {
+    /**
+     * [auth] rather than a bare secret string: the two parameters after it are both `String?`, so a
+     * third would let the project name slide silently into the `secret` field of a 0600 file.
+     */
+    fun write(port: Int, host: String, auth: DesignerAuth, project: String?, gatewayAddress: String?) {
         val json = jsonObject {
             put("pid", pid)
             put("port", port)
             put("host", host)
             put("url", "http://$host:$port/mcp")
-            put("secret", secret)
+            // The derived answer beside the raw one, so a client can branch on "do I need a
+            // credential" without inferring it from a null.
+            put("auth", if (auth.required) "bearer" else "none")
+            put("secret", auth.secret)
             put("project", project)
             put("gateway", gatewayAddress)
             put("startedAt", Instant.now().toString())
@@ -152,12 +157,6 @@ class DiscoveryFile(private val directory: Path = defaultDirectory()) {
         } catch (e: IOException) {
             logger.warn("Could not restrict permissions on {}", target, e)
         }
-    }
-
-    private fun generateSecret(): String {
-        val bytes = ByteArray(24)
-        SecureRandom().nextBytes(bytes)
-        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     companion object {

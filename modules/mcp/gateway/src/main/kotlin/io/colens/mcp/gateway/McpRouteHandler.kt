@@ -33,6 +33,7 @@ class McpRouteHandler(private val server: () -> McpServer?) : RouteHandler {
                 method = ctx.method?.name ?: "POST",
                 body = if (ctx.method?.name.equals("POST", ignoreCase = true)) ctx.readBody() else null,
                 origin = ctx.request.getHeader("Origin"),
+                contentType = ctx.request.getHeader("Content-Type"),
             )
         )
 

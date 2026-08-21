@@ -7,6 +7,7 @@ import com.inductiveautomation.ignition.designer.model.menu.JMenuMerge
 import com.inductiveautomation.ignition.designer.model.menu.MenuBarMerge
 import com.inductiveautomation.ignition.designer.model.menu.WellKnownMenuConstants
 import io.colens.mcp.common.Constants
+import io.colens.mcp.common.DesignerAuth
 import io.colens.mcp.common.DevMode
 import io.colens.mcp.common.McpServer
 import io.colens.mcp.common.ToolRegistry
@@ -31,6 +32,12 @@ class DesignerHook : AbstractDesignerModuleHook() {
     private lateinit var context: DesignerContext
 
     private var discovery: DiscoveryFile? = null
+
+    /**
+     * Read once, before startup. The endpoint, the discovery file and the connect dialog must agree
+     * on one answer, and `getModuleMenu()` is not ordered against `startup()`.
+     */
+    private val auth: DesignerAuth = DesignerAuth.fromSystemProperties()
     private var httpServer: McpHttpServer? = null
     private var connectDialog: ConnectDialog? = null
 
@@ -91,7 +98,7 @@ class DesignerHook : AbstractDesignerModuleHook() {
             allowAnyOrigin = DevMode.enabled(),
         )
 
-        val server = McpHttpServer(mcp, discoveryFile.secret)
+        val server = McpHttpServer(mcp, auth)
         val port = try {
             server.start()
         } catch (e: Exception) {
@@ -102,7 +109,21 @@ class DesignerHook : AbstractDesignerModuleHook() {
         }
 
         httpServer = server
-        discoveryFile.write(port, server.boundHost, context.projectName, gatewayAddress())
+        discoveryFile.write(port, server.boundHost, auth, context.projectName, gatewayAddress())
+
+        // Deliberately here and not beside the other save warning: `loopbackOnly` is not known
+        // until the bind succeeds, so this check cannot move up with it.
+        if (DesignerTools.saveAllowed() && !server.loopbackOnly && !auth.required) {
+            logger.error(
+                "save_project is enabled on a Designer MCP endpoint bound to {}:{} that requires " +
+                    "no credential. Anything that can route to this machine can commit changes to " +
+                    "the gateway with nobody reviewing them. Set -D{}, or drop -D{}.",
+                server.boundHost,
+                port,
+                DesignerAuth.SECRET_PROPERTY,
+                McpHttpServer.BIND_ADDRESS_PROPERTY,
+            )
+        }
 
         logger.info(
             "Ignition MCP Designer endpoint ready: {} tools on http://{}:{}/mcp",
@@ -127,7 +148,7 @@ class DesignerHook : AbstractDesignerModuleHook() {
             if (server == null || disc == null || server.port <= 0) {
                 null
             } else {
-                ConnectDialog.Endpoint(server.boundHost, server.port, disc.secret, disc.path.toString())
+                ConnectDialog.Endpoint(server.boundHost, server.port, auth.secret, disc.path.toString())
             }
         }
         connectDialog = dialog

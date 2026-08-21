@@ -44,9 +44,44 @@ class McpServerTest : StringSpec({
         McpServer(ToolRegistry(tools.toList()), serverVersion = "0.0.0-test")
 
     fun post(server: McpServer, json: String, origin: String? = null) =
-        server.handle(McpHttpRequest("POST", json, origin))
+        server.handle(McpHttpRequest("POST", json, origin, contentType = "application/json"))
 
     fun bodyOf(result: McpHttpResult): JsonObject = McpJson.parse(result.body).asJsonObject
+
+    // -- content type -------------------------------------------------------
+
+    // Not pedantry: requiring this is what forces a browser through CORS preflight, which the 405
+    // on non-POST already kills. Without it a page can reach the server with a text/plain simple
+    // request, and under dev mode the Origin allowlist is off.
+    "a POST without a content type is refused" {
+        val res = server(echoTool()).handle(McpHttpRequest("POST", """{"jsonrpc":"2.0","id":1,"method":"ping"}"""))
+        res.status shouldBe 415
+    }
+
+    "a POST claiming text/plain is refused" {
+        val res = server(echoTool()).handle(
+            McpHttpRequest("POST", """{"jsonrpc":"2.0","id":1,"method":"ping"}""", contentType = "text/plain")
+        )
+        res.status shouldBe 415
+    }
+
+    "a charset parameter is tolerated" {
+        val res = server(echoTool()).handle(
+            McpHttpRequest(
+                "POST",
+                """{"jsonrpc":"2.0","id":1,"method":"ping"}""",
+                contentType = "application/json; charset=utf-8",
+            )
+        )
+        res.status shouldBe 200
+    }
+
+    "the content type is matched case-insensitively" {
+        val res = server(echoTool()).handle(
+            McpHttpRequest("POST", """{"jsonrpc":"2.0","id":1,"method":"ping"}""", contentType = "APPLICATION/JSON")
+        )
+        res.status shouldBe 200
+    }
 
     // -- lifecycle ----------------------------------------------------------
 
@@ -247,7 +282,12 @@ class McpServerTest : StringSpec({
         )
 
         server.handle(
-            McpHttpRequest("POST", """{"jsonrpc":"2.0","id":1,"method":"ping"}""", "https://ops.example.com")
+            McpHttpRequest(
+                "POST",
+                """{"jsonrpc":"2.0","id":1,"method":"ping"}""",
+                "https://ops.example.com",
+                contentType = "application/json",
+            )
         ).status shouldBe 200
     }
 
