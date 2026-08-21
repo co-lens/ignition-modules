@@ -18,11 +18,38 @@ Every edit tool does the same three things:
 
 1. **Read** the view as the Designer currently sees it, including unsaved edits.
 2. **Apply** exactly one change.
-3. **Validate**, and refuse to stage anything that would leave the view broken.
+3. **Validate**, and refuse to stage anything the edit itself would break.
+
+Step 3 judges the edit, not the view. Errors the view *already* had do not block an unrelated
+change — see [Pre-existing errors](#pre-existing-errors) below.
 
 Nothing is committed by these tools. Every successful edit appears as an **unsaved Designer change** for a human
 to review and save — check what's pending with
 [`list_pending_changes`](../tools/designer.md#list_pending_changes).
+
+## Pre-existing errors
+
+An edit is refused only when it **introduces** an error. A view that already fails validation is
+still editable, which matters because the views most likely to need automated editing are the ones
+carrying something odd — and because refusing otherwise would block
+`perspective_delete_component` from removing the very component at fault.
+
+Errors that were already there come back on the successful result instead of being silently
+dropped:
+
+| Key | Contents |
+| --- | --- |
+| `warnings` | warnings from the edited view |
+| `preExistingErrorCount` | how many errors the view already had |
+| `preExistingErrors` | up to ten of them, at their post-edit paths |
+
+Both `preExisting*` keys are absent when the view is clean. For the full, uncapped list use
+[`perspective_validate_view`](../tools/gateway.md#perspective_validate_view).
+
+A finding counts as pre-existing when a finding with the same code and message was there before —
+deliberately regardless of its path. Moving a component, renaming one, or deleting a sibling ahead
+of an unnamed one all rewrite paths, so matching on path would flag untouched findings as new and
+refuse exactly the edits this rule exists to allow.
 
 ## Addressing
 

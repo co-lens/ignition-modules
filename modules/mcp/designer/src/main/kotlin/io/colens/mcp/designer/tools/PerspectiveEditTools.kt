@@ -4,8 +4,10 @@ import com.inductiveautomation.ignition.common.gson.JsonArray
 import com.inductiveautomation.ignition.common.gson.JsonElement
 import com.inductiveautomation.ignition.common.gson.JsonObject
 import com.inductiveautomation.ignition.designer.model.DesignerContext
+import io.colens.mcp.common.Finding
 import io.colens.mcp.common.McpArgumentException
 import io.colens.mcp.common.Tool
+import io.colens.mcp.common.diffFindings
 import io.colens.mcp.common.jsonArrayOf
 import io.colens.mcp.common.jsonObject
 import io.colens.mcp.common.optInt
@@ -77,6 +79,12 @@ class PerspectiveEditTools(private val context: DesignerContext) {
     /**
      * Reads the view, applies [edit], validates, and stages it. Refuses to write when the edit
      * would introduce errors, returning the findings so the caller can correct the call.
+     *
+     * Errors the view *already* had do not block the write. Views authored in the Designer
+     * routinely carry findings we did not cause — a binding whose config Perspective's own shipped
+     * schema does not describe is enough — and inheriting them made every such view permanently
+     * un-editable through these tools, including by the call that would have removed the offending
+     * component. They come back on the result instead, so they stay visible without being fatal.
      */
     private fun edit(
         args: JsonObject,
@@ -87,16 +95,22 @@ class PerspectiveEditTools(private val context: DesignerContext) {
         val viewPath = args.requireString("view")
 
         val doc = source.read(project, viewPath)
+        // ViewDocument deep-copies on construction, so this is an independent pristine baseline.
+        // Validating it is deferred: only a view that ends up with errors needs one at all, which
+        // keeps the ordinary clean-view path at a single validation pass.
+        val baseline = ViewDocument.of(doc.json())
 
         edit(doc)
 
         val findings = validator.validate(doc)
-        val errors = findings.filter { it.severity == Severity.ERROR }
-        if (errors.isNotEmpty()) {
-            throw McpArgumentException(
-                "Refusing to write: the result would be invalid. " +
-                    errors.joinToString("; ") { "${it.path}: ${it.message}${it.fix?.let { f -> " ($f)" } ?: ""}" }
-            )
+        var preExistingErrors = emptyList<Finding>()
+        if (findings.any { it.severity == Severity.ERROR }) {
+            val diff = diffFindings(validator.validate(baseline), findings)
+            preExistingErrors = diff.preExisting.filter { it.severity == Severity.ERROR }
+            val introduced = diff.introduced.filter { it.severity == Severity.ERROR }
+            if (introduced.isNotEmpty()) {
+                throw McpArgumentException(refusal(introduced, preExistingErrors.size))
+            }
         }
 
         val outcome = source.write(project, viewPath, doc)
@@ -105,11 +119,46 @@ class PerspectiveEditTools(private val context: DesignerContext) {
             put("view", viewPath)
             put("committed", outcome.committed)
             put("note", outcome.note)
-            if (findings.isNotEmpty()) {
-                put("warnings", jsonArrayOf(findings.map { it.toJson() }))
+            val warnings = findings.filter { it.severity == Severity.WARNING }
+            if (warnings.isNotEmpty()) {
+                put("warnings", jsonArrayOf(warnings.map { it.toJson() }))
+            }
+            if (preExistingErrors.isNotEmpty()) {
+                put("preExistingErrorCount", preExistingErrors.size)
+                put(
+                    "preExistingErrors",
+                    jsonArrayOf(preExistingErrors.take(MAX_REPORTED_PRE_EXISTING).map { it.toJson() }),
+                )
             }
             extra()
         }
+    }
+
+    /**
+     * Says what this edit would break, and — when the view was already broken — that the rest was
+     * left alone. Without that last sentence a model reads the refusal as "the whole view is
+     * invalid again" and starts trying to repair components it never touched.
+     */
+    private fun refusal(introduced: List<Finding>, preExisting: Int): String {
+        val detail = introduced.joinToString("; ") {
+            "${it.path}: ${it.message}${it.fix?.let { f -> " ($f)" } ?: ""}"
+        }
+        val plural = if (introduced.size == 1) "error" else "errors"
+        val tail = when (preExisting) {
+            0 -> ""
+            1 -> " 1 pre-existing error elsewhere in this view was left alone."
+            else -> " $preExisting pre-existing errors elsewhere in this view were left alone."
+        }
+        return "Refusing to write: this edit would introduce ${introduced.size} $plural. $detail$tail"
+    }
+
+    private companion object {
+        /**
+         * A view like the one in issue #5 carries ten or more of these. Reporting all of them on
+         * every edit would drag the whole list through the caller's context each call, so send
+         * enough to act on and let perspective_validate_view be the uncapped view.
+         */
+        const val MAX_REPORTED_PRE_EXISTING = 10
     }
 
     private fun viewArgs(builder: io.colens.mcp.common.SchemaBuilder) {

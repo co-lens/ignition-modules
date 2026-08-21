@@ -25,8 +25,9 @@ project-mutation surface at all.
 
 The edit tools are surgical (`perspective_add_component`, `perspective_set_binding`,
 `perspective_set_event`, …), so a model addresses components by path and never handles raw
-`view.json`. Every edit is validated before it is staged and refused outright if the result would
-be invalid.
+`view.json`. Every edit is validated before it is staged and refused if the edit itself would
+introduce an error. Problems the view already had are reported alongside the result rather than
+inherited, so one odd binding doesn't make a view permanently un-editable.
 
 See **[Editing views](./editing.md)** for how the 13 edit tools fit together.
 

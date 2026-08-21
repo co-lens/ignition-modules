@@ -254,7 +254,20 @@ JVM debug ports. Then through the Designer bridge (**Tools → MCP Connection In
    array, so this proves nothing on its own** — force a finding first, e.g. `perspective_set_binding`
    with `"type":"notarealbindingtype"`, which yields an `unknown_binding_type` warning carrying both
    fields.
-5. Confirm **no** `~/.ignition/mcp/backups/` directory is created. Pre-edit snapshots were removed
+5. **Issue #5 regression trio** — the three the unit tests structurally cannot reach, because
+   the gate lives in `:designer` and needs a real Designer bridge.
+   a. `perspective_set_binding` type `tag`, config
+      `{"mode":"indirect","tagPath":"{p}/Status","references":{"p":"{view.params.tagPath}"},"fallbackDelay":2.5}`
+      — must **succeed**. Perspective's shipped `binding-tag.json` omits `fallbackDelay`; the module
+      restores the declaration. `perspective_validate_view` must then be clean.
+   b. Plant an unrelated error by hand (e.g. an `inline_binding` on one component; on 8.3 follow
+      with `scan_resource_files`), then `perspective_update_component` a **different** component and
+      `perspective_delete_component` a sibling — both must succeed and return `preExistingErrorCount`
+      with the untouched finding under `preExistingErrors`. Then `perspective_move_component` the
+      broken one into a new container: still succeeds, count still 1, path now the post-move one.
+   c. Confirm the gate still bites — an edit that *introduces* an error is still refused, with a
+      message beginning `Refusing to write: this edit would introduce`.
+6. Confirm **no** `~/.ignition/mcp/backups/` directory is created. Pre-edit snapshots were removed
    from the 8.3 line — git is the recovery path now — so a backups directory appearing here means
    `SnapshotStore` came back from somewhere.
 
