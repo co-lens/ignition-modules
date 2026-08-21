@@ -36,6 +36,19 @@ interface ComponentCatalog {
 
     /** Binding types we can validate, from the schema resources Perspective ships. */
     fun bindingTypes(): Set<String>
+
+    /**
+     * Validates a binding transform against Perspective's shipped `schemas/transform-<type>.json`.
+     *
+     * Takes the whole transform object, `type` and all, because that is what Perspective's own
+     * factories are handed — a transform's keys are inline, not under `config`. Returns null when
+     * the transform type is unrecognised or ships no schema (`script` ships none), which the
+     * caller reports differently from "recognised but invalid".
+     */
+    fun validateTransform(transformType: String, transform: JsonObject): List<SchemaViolation>?
+
+    /** Transform types we can validate, from the schema resources Perspective ships. */
+    fun transformTypes(): Set<String>
 }
 
 data class ComponentTypeInfo(
@@ -62,4 +75,6 @@ object NoComponentCatalog : ComponentCatalog {
     override fun validateProps(typeId: String, props: JsonObject): List<SchemaViolation> = emptyList()
     override fun validateBindingConfig(bindingType: String, config: JsonObject): List<SchemaViolation>? = null
     override fun bindingTypes(): Set<String> = emptySet()
+    override fun validateTransform(transformType: String, transform: JsonObject): List<SchemaViolation>? = null
+    override fun transformTypes(): Set<String> = emptySet()
 }

@@ -28,8 +28,10 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
 
     private val logger = LoggerFactory.getLogger("mcp.Perspective.Catalog")
 
-    /** Cached because it never changes for a given Perspective build. */
-    private val bindingSchemas: Map<String, JsonSchema> by lazy { loadBindingSchemas() }
+    /** Cached because they never change for a given Perspective build. */
+    private val bindingSchemas: Map<String, JsonSchema> by lazy { loadSchemas(BINDING_SCHEMA_RESOURCES) }
+
+    private val transformSchemas: Map<String, JsonSchema> by lazy { loadSchemas(TRANSFORM_SCHEMA_RESOURCES) }
 
     override fun componentTypes(): Set<String> = registry()?.get()?.keys.orEmpty()
 
@@ -98,6 +100,20 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
 
     override fun bindingTypes(): Set<String> = bindingSchemas.keys
 
+    /**
+     * `schemas/transform-expr.json` declares only `expression` and sets
+     * `additionalProperties: false`, so the envelope's own `type` key has to come off before the
+     * schema sees the object — otherwise every correctly written expression transform is reported
+     * as carrying a property its schema does not allow.
+     */
+    override fun validateTransform(transformType: String, transform: JsonObject): List<SchemaViolation>? {
+        val schema = transformSchemas[transformType] ?: return null
+        val body = transform.deepCopy().apply { remove("type") }
+        return validate(schema, body, "transform")
+    }
+
+    override fun transformTypes(): Set<String> = transformSchemas.keys
+
     private fun validate(schema: JsonSchema, value: JsonElement, at: String): List<SchemaViolation> =
         try {
             schema.validate(value, value, at).map {
@@ -110,17 +126,17 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
         }
 
     /**
-     * Discovers binding types from the schema resources on Perspective's classpath. Loaded via
+     * Discovers types from the schema resources on Perspective's classpath. Loaded via
      * [ComponentDescriptor]'s classloader so we read Perspective's own copy, whatever version is
-     * installed.
+     * installed. Shared by the binding and transform tables, which differ only in their resources.
      */
-    private fun loadBindingSchemas(): Map<String, JsonSchema> {
+    private fun loadSchemas(resources: Map<String, String>): Map<String, JsonSchema> {
         val loader = ComponentDescriptor::class.java.classLoader ?: return emptyMap()
         val found = LinkedHashMap<String, JsonSchema>()
 
-        // Perspective ships one schema per binding type; there's no index, so probe the known
-        // resource names. An unknown-to-us type simply isn't validated (reported as a warning).
-        for ((type, resource) in BINDING_SCHEMA_RESOURCES) {
+        // Perspective ships one schema per type; there's no index, so probe the known resource
+        // names. An unknown-to-us type simply isn't validated (reported as a warning).
+        for ((type, resource) in resources) {
             try {
                 loader.getResourceAsStream(resource)?.use { stream ->
                     val shipped = McpJson.parse(stream.reader(Charsets.UTF_8).readText())
@@ -140,7 +156,7 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
             }
         }
 
-        logger.debug("Loaded {} Perspective binding schemas", found.size)
+        logger.debug("Loaded {} Perspective schemas", found.size)
         return found
     }
 
@@ -160,6 +176,28 @@ class PerspectiveComponentCatalog(private val registry: () -> ComponentRegistry?
             "query" to "schemas/binding-query.json",
             "tag-history" to "schemas/binding-tag-history.json",
             "http" to "schemas/binding-http.json",
+        )
+
+        /*
+         * Perspective registers four transform types. Two are validated here; the other two are
+         * left to TransformShapes' required-key check, for different reasons.
+         *
+         * `script` ships no schema at all. And `transform-map.json` is a fifteen-branch `oneOf`
+         * over every (inputType, outputType) pair, so a map transform with one real mistake
+         * reports nine or ten violations — one true, the rest "not equal to the const value
+         * 'inline-style'" and friends from the fourteen branches nobody meant. Since these
+         * violations also *refuse a write*, that trade is not worth making: the finding would be
+         * buried exactly the way validateProps' defaults-merge exists to prevent. The shape
+         * mistake issue #6 is about (keys under a `config` wrapper) is caught by TransformShapes
+         * for every type, and a malformed mapping *element* fails loudly at runtime as a
+         * BrokenTransform rather than silently.
+         *
+         * The expression transform's type id is `expression`, but its schema resource is named for
+         * the `expr` binding — hence the mismatch below.
+         */
+        val TRANSFORM_SCHEMA_RESOURCES = mapOf(
+            "expression" to "schemas/transform-expr.json",
+            "format" to "schemas/transform-format.json",
         )
     }
 }

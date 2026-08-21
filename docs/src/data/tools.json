@@ -1903,7 +1903,7 @@
             {
               "name": "perspective_set_binding",
               "title": "Set a binding",
-              "description": "Binds a property. The binding is written to propConfig (never into props, which is where hand-written views usually go wrong) and its config is validated against Perspective\u0027s schema for that binding type before anything is staged. For a bidirectional tag binding put \u0027bidirectional\u0027: true inside config, not beside it.",
+              "description": "Binds a property. The binding is written to propConfig (never into props, which is where hand-written views usually go wrong) and its config is validated against Perspective\u0027s schema for that binding type before anything is staged. For a bidirectional tag binding put \u0027bidirectional\u0027: true inside config, not beside it. Transforms are checked too — a transform\u0027s keys sit INLINE beside its \u0027type\u0027, with no \u0027config\u0027 wrapper, and one written binding-style is rejected rather than saved inert.",
               "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1936,7 +1936,7 @@
                     "description": "Optional transforms applied in order.",
                     "items": {
                       "type": "object",
-                      "description": "A transform, e.g. {\"type\": \"format\", \"config\": {...}}."
+                      "description": "A transform. Unlike a binding it has NO \u0027config\u0027 wrapper: its keys are inline siblings of \u0027type\u0027. E.g. {\"type\": \"expression\", \"expression\": \"{value} \u003d 8\"} or {\"type\": \"format\", \"formatType\": \"numeric\", \"formatValue\": \"0.00\"}."
                     }
                   },
                   "enabled": {

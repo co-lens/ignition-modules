@@ -279,7 +279,23 @@ JVM debug ports. Then through the Designer bridge (**Tools → MCP Connection In
       broken one into a new container: still succeeds, count still 1, path now the post-move one.
    c. Confirm the gate still bites — an edit that *introduces* an error is still refused, with a
       message beginning `Refusing to write: this edit would introduce`.
-6. Confirm **no** `~/.ignition/mcp/backups/` directory is created. Pre-edit snapshots were removed
+6. **Issues #6 / #7 regression pair** — both live in the Designer edit path.
+   a. `perspective_set_custom_property` `path: "view"`, `perspective_set_binding` on
+      `custom.<name>` at `path: "view"`, then `perspective_delete_binding` `path: "view"` — must
+      **succeed**, and `perspective_get_view` must show the custom property still there with its
+      binding gone (#7). Repeat with a parameter from `perspective_set_view_param`, deleting a
+      binding on `params.<name>`.
+   b. `perspective_set_binding` with
+      `"transforms":[{"type":"expression","config":{"expression":"{value} = 8"}}]` — must be
+      **rejected**, with a message naming the inline form (#6). Re-issue as
+      `{"type":"expression","expression":"{value} = 8"}` — must succeed, and the Designer must show
+      the expression rather than a bare `{value}`.
+   c. **False-positive check.** Open a view carrying Designer-authored `format` and `map`
+      transforms and run `perspective_validate_view` — it must report **no** transform findings. A
+      finding here means Perspective's own `transform-format.json` or `transform-map.json` is as
+      wrong as `binding-tag.json` was, which is a `BindingSchemaPatches` entry, not a reason to
+      keep a false refusal. On 8.3, `scan_resource_files` first.
+7. Confirm **no** `~/.ignition/mcp/backups/` directory is created. Pre-edit snapshots were removed
    from the 8.3 line — git is the recovery path now — so a backups directory appearing here means
    `SnapshotStore` came back from somewhere.
 

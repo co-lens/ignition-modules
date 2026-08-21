@@ -296,9 +296,13 @@ class ViewDocument private constructor(private val doc: JsonObject) {
     fun propConfigEntry(path: String, propertyKey: String): JsonObject =
         propConfig(path).objectAt(propertyKey)
 
+    /**
+     * Goes through [target], not [component]: a view-level `propConfig` holds the entries for
+     * `custom.*` and `params.*`, and resolving `'view'` as a component path instead made
+     * `perspective_delete_binding` reject the very path its own schema documents (issue #7).
+     */
     fun propConfigEntryOrNull(path: String, propertyKey: String): JsonObject? =
-        component(path).let { if (isViewPath(path)) root else it }
-            .getAsJsonObjectOrNull("propConfig")?.getAsJsonObjectOrNull(propertyKey)
+        target(path).getAsJsonObjectOrNull("propConfig")?.getAsJsonObjectOrNull(propertyKey)
 
     /** Removes a `propConfig` entry entirely. Returns true if one was there. */
     fun removePropConfigEntry(path: String, propertyKey: String): Boolean =
@@ -313,8 +317,11 @@ class ViewDocument private constructor(private val doc: JsonObject) {
     /** An event group such as `dom` or `component`, created if absent. */
     fun eventGroup(path: String, group: String): JsonObject = events(path).objectAt(group)
 
-    fun eventGroupOrNull(path: String, group: String): JsonObject? =
-        component(path).getAsJsonObjectOrNull("events")?.getAsJsonObjectOrNull(group)
+    /** Guards the view path itself so the caller gets [events]' explanation, not a path error. */
+    fun eventGroupOrNull(path: String, group: String): JsonObject? {
+        if (isViewPath(path)) throw McpArgumentException("Events belong to components, not the view")
+        return component(path).getAsJsonObjectOrNull("events")?.getAsJsonObjectOrNull(group)
+    }
 
     // -----------------------------------------------------------------------
     // Summaries
