@@ -5,9 +5,10 @@ manual pass that runs against them. It exists because everything here is behavio
 reaches: the suites were green through all four bugs this pass caught, because all four only appear
 against a running gateway.
 
-**Run this before cutting a release on either line.** It was first run on 2026-08-11 — see
-[Result](#result-2026-08-11) — and the recipes are written to be repeatable rather than as a record
-of that run. The containers are disposable; bring them up with the compose files below.
+**Run this before cutting a release on either line.** It was first run on 2026-08-11 and most
+recently on 2026-08-25 — see [Result](#result-2026-08-25) — and the recipes are written to be
+repeatable rather than as a record of any one run. The containers are disposable; bring them up
+with the compose files below.
 
 Neither shares anything with the other Ignition containers on this machine, which are left alone.
 
@@ -169,6 +170,21 @@ Five traps, each of which has cost a session:
 
 The Designer launcher installed on the Linux host does not work. Don't reach for it.
 
+## Planting a view by hand
+
+Both `perspective_validate_view` and the rest of the read tools are gateway-scope, so a view can be
+planted on disk with `run_script` and checked without a Designer at all. Two things to know:
+
+- **`resource.json` must carry an `attributes` key**, even empty. `ProjectResourceBuilder`
+  `setAttributes` wraps it in `new HashMap<>(...)` with no null check, so omitting it faults the
+  whole gateway at startup — `ContextState = FAULTED`, every project unloaded, and the only trace is
+  an NPE from `ProjectFileTree.collectResources`. 8.3.7 tolerated the omission on a live scan and
+  8.1.43 did not survive a restart, so a gateway that looks fine can still be one restart from dead.
+- **Both lines pick up disk edits on `scan_resource_files`** — a modified resource, a newly planted
+  view directory and a deleted one, all without a restart. The 8.1 line is easy to assume otherwise
+  about, but the scan was ported in `d20345f` on 2026-08-08 and has shipped in every `mcp81` tag
+  since `v0.2.0`; verified against 8.1.43 on 2026-08-25.
+
 ---
 
 # The tests
@@ -272,11 +288,14 @@ JVM debug ports. Then through the Designer bridge (**Tools → MCP Connection In
       `{"mode":"indirect","tagPath":"{p}/Status","references":{"p":"{view.params.tagPath}"},"fallbackDelay":2.5}`
       — must **succeed**. Perspective's shipped `binding-tag.json` omits `fallbackDelay`; the module
       restores the declaration. `perspective_validate_view` must then be clean.
-   b. Plant an unrelated error by hand (e.g. an `inline_binding` on one component; on 8.3 follow
-      with `scan_resource_files`), then `perspective_update_component` a **different** component and
-      `perspective_delete_component` a sibling — both must succeed and return `preExistingErrorCount`
-      with the untouched finding under `preExistingErrors`. Then `perspective_move_component` the
-      broken one into a new container: still succeeds, count still 1, path now the post-move one.
+   b. Plant an unrelated error by hand (e.g. an `inline_binding` on one component). It takes three
+      steps to reach the Designer, on **both** lines: write the file, `scan_resource_files` so the
+      gateway sees it, then `merge_gateway_changes` so the Designer does — the edit tools read the
+      Designer's own copy, not the gateway's. Then `perspective_update_component` a **different**
+      component and `perspective_delete_component` a sibling — both must succeed and return
+      `preExistingErrorCount` with the untouched finding under `preExistingErrors`. Then
+      `perspective_move_component` the broken one into a new container: still succeeds, count still
+      1, path now the post-move one.
    c. Confirm the gate still bites — an edit that *introduces* an error is still refused, with a
       message beginning `Refusing to write: this edit would introduce`.
 6. **Issues #6 / #7 regression pair** — both live in the Designer edit path.
@@ -294,7 +313,7 @@ JVM debug ports. Then through the Designer bridge (**Tools → MCP Connection In
       transforms and run `perspective_validate_view` — it must report **no** transform findings. A
       finding here means Perspective's own `transform-format.json` or `transform-map.json` is as
       wrong as `binding-tag.json` was, which is a `BindingSchemaPatches` entry, not a reason to
-      keep a false refusal. On 8.3, `scan_resource_files` first.
+      keep a false refusal. If you planted the view on disk, `scan_resource_files` first.
 7. Confirm **no** `~/.ignition/mcp/backups/` directory is created. Pre-edit snapshots were removed
    from the 8.3 line — git is the recovery path now — so a backups directory appearing here means
    `SnapshotStore` came back from somewhere.
@@ -411,9 +430,9 @@ Stage an edit in the Designer, make a **conflicting** change to the same resourc
 and confirm `save_project` refuses and names the resource rather than silently winning. The staged
 edit must survive.
 
-Editing the resource on the gateway's disk is how to induce it — but on 8.3 **the gateway never
-scans on its own**, so the edit is invisible until you call `scan_resource_files`. That is the whole
-reason this looked untestable on 8.3 at first:
+Editing the resource on the gateway's disk is how to induce it — but **neither gateway scans on its
+own**, so the edit is invisible until you call `scan_resource_files`. That is the whole reason this
+looked untestable at first:
 
 ```bash
 # 1. stage a Designer edit to MCP/Probe, then edit the same view.json on the gateway's disk
@@ -486,6 +505,48 @@ docker compose -f docker/testing/docker-compose.8.3.7.yml down
 docker compose -f docker/testing/docker-compose.8.1.43.yml down
 git worktree remove /home/nate/src/mcp-ignition-81   # only when done with the 8.1 line entirely
 ```
+
+## Result, 2026-08-25 {#result-2026-08-25}
+
+**Everything above passes on both gateways**, run against the module built from `2e37c93` (8.3) and
+`4a7e3d6` (8.1) — the #6/#7 fix, unreleased at the time. §1, §2, §3, §4 and §5 all green on 8.1.43
+and 8.3.7. This pass found **no new bugs**: what it did was confirm the two fixes on a running
+gateway and correct three things this file had wrong.
+
+The point of the run was §2 step 6, and both issues are now proven on disk rather than in staged
+Designer state:
+
+- **#7** — `perspective_delete_binding` with `path: "view"` succeeds on both lines. The custom
+  property survives with its value; a bound `params.*` keeps `paramDirection` and `persistent` in
+  `propConfig` and loses only the `binding` key. That second case is the one the old
+  `delete_custom_property` workaround could not reach at all.
+- **#6** — the nested transform is refused before staging on both lines, with a message naming the
+  inline form. Re-issued inline it saves, and `view.json` carries
+  `{"type": "expression", "expression": "{value} = 8"}` flat. Confirmed rendering in the 8.3
+  Designer, which is the half no tool can check: the original failure staged, saved and validated
+  clean while the Designer showed an empty expression.
+- **6c** found no false positives: `MCP/TransformClean` validates clean across 12 transform shapes
+  on 8.3 and 8 on 8.1, while `MCP/TransformBad` reports exactly its intended 4 and 3. So neither
+  `transform-format.json` nor the map keys are wrong the way `binding-tag.json` was, and
+  `BindingSchemaPatches` needs no new entry.
+
+The three corrections, all folded into the recipes above:
+
+| was | is |
+| --- | --- |
+| `scan_resource_files` is 8.3-only; 8.1 needs a container `restart` | It works on 8.1.43 too — modify, add and delete — and was ported in `d20345f` on 2026-08-08 |
+| §2 5b: plant the error, then scan | Plant, scan, **then `merge_gateway_changes`** — the edit tools read the Designer's copy, so without the merge the test proves nothing |
+| §4a: "on 8.3 the gateway never scans on its own" | Neither gateway does |
+
+Two notes for the next run, neither a test failure:
+
+- **`save_project` did not register on the 8.1 Designer** at first. On that line `saveAllowed()` is
+  `allowSave || DevMode.enabled()`, so the tool list is the way to tell whether the launcher's JVM
+  arguments actually took: 28 tools means they did, 27 means they did not. Worth checking before
+  §4 rather than during it.
+- **Step 7's Designer half is unreachable.** The gateways are clean, but `SnapshotStore` would write
+  under the Designer's home, which is inside the Windows guest — and both Designers share it, so an
+  8.1-authored backups directory would be indistinguishable from an 8.3 one anyway.
 
 ## Result, 2026-08-11 {#result-2026-08-11}
 
