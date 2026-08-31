@@ -1,6 +1,8 @@
-import type * as Preset from '@docusaurus/preset-classic';
 import type {Config} from '@docusaurus/types';
-import type * as DocsPlugin from '@docusaurus/plugin-content-docs';
+// ThemeConfig comes from the preset rather than from preset-classic, which this site no longer
+// depends on. The preset's types entry also carries the `@theme/*` module declarations that
+// ToolReference needs — they used to arrive with preset-classic.
+import type {ColensPresetOptions, ThemeConfig} from '@co-lens/docusaurus-preset';
 
 // The one place the subpath is written down. `headTags` hrefs are emitted verbatim — Docusaurus
 // does not prefix them the way it does `favicon` — so they have to build their own absolute path,
@@ -54,67 +56,48 @@ const config: Config = {
 
   presets: [
     [
-      'classic',
+      // The co-lens template. It supplies the theme, the token layer, the search wiring, the MDX
+      // components and the doc-health checks; everything below is what this site owns.
+      '@co-lens/docusaurus-preset',
       {
-        // The 'default' docs instance: repo-wide material, mounted at the root.
-        docs: {
-          path: 'content',
-          routeBasePath: '/',
-          sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/co-lens/ignition-modules/tree/main/docs/',
-          showLastUpdateTime: true,
+        docs: [
+          // The default instance: repo-wide material, mounted at the root.
+          {
+            path: 'content',
+            routeBasePath: '/',
+            sidebarPath: './sidebars.ts',
+            editUrl: 'https://github.com/co-lens/ignition-modules/tree/main/docs/',
+            showLastUpdateTime: true,
+          },
+          // A second instance, one tree per module under /modules/<module>/. Adding a module is a
+          // new folder here plus a sidebar entry and a navbar item — no change to this file.
+          {
+            id: 'modules',
+            path: 'modules',
+            routeBasePath: 'modules',
+            sidebarPath: './sidebarsModules.ts',
+            editUrl: 'https://github.com/co-lens/ignition-modules/tree/main/docs/',
+            showLastUpdateTime: true,
+          },
+        ],
+        // The preset derives `docsRouteBasePath` from the instances above, so the search index
+        // covers both trees without it being restated here. These two are genuinely site-specific.
+        search: {
+          hashed: true,
+          searchResultLimits: 8,
         },
-        blog: false,
-        theme: {customCss: './src/css/custom.css'},
-      } satisfies Preset.Options,
-    ],
-  ],
-
-  themes: [
-    [
-      // Offline search, built at compile time — no Algolia account, no external requests, which
-      // keeps the site self-contained. It is a third-party theme coupled to Docusaurus internals,
-      // so treat a Docusaurus major upgrade as needing this checked.
-      require.resolve('@easyops-cn/docusaurus-search-local'),
-      {
-        hashed: true,
-        // Both docs instances, or the module pages — the bulk of the site — wouldn't be indexed.
-        docsRouteBasePath: ['/', 'modules'],
-        indexBlog: false,
-        highlightSearchTermsOnTargetPage: true,
-        searchResultLimits: 8,
-      },
-    ],
-  ],
-
-  plugins: [
-    [
-      '@docusaurus/plugin-content-docs',
-      {
-        // A second instance, one tree per module under /modules/<module>/. Adding a module is a new
-        // folder here plus a sidebar entry and a navbar item — no change to this file.
-        id: 'modules',
-        path: 'modules',
-        routeBasePath: 'modules',
-        sidebarPath: './sidebarsModules.ts',
-        editUrl: 'https://github.com/co-lens/ignition-modules/tree/main/docs/',
-        showLastUpdateTime: true,
-      } satisfies DocsPlugin.Options,
+      } satisfies ColensPresetOptions,
     ],
   ],
 
   themeConfig: {
-    // No `image`: og:image has to be a raster format, because Slack, LinkedIn, Discord and X all
-    // decline to render an SVG there. Pointing it at the wordmark would silently produce no link
-    // preview at all, which is worse than declaring nothing. Restore this the day a PNG card
-    // exists.
+    // og:image, generated with `npx colens-docs-card`. It has to be a raster format, because
+    // Slack, LinkedIn, Discord and X all decline to render an SVG there.
+    image: 'img/social-card.png',
     navbar: {
-      // The wordmark already reads "co-lens", so the title carries only what it doesn't.
+      // The lambda mark comes from the preset and uses currentColor, so there is no srcDark asset
+      // to keep in sync any more. The title carries what the mark doesn't.
       title: 'modules',
-      // srcDark is not optional here: the wordmark is #3C464D, which on the dark navbar's near
-      // black leaves the letterforms all but invisible and only the orange lambda showing.
-      // co-lens-dark.svg is the same file with that one fill lightened.
-      logo: {alt: 'co-lens', src: 'img/co-lens.svg', srcDark: 'img/co-lens-dark.svg'},
       items: [
         {type: 'docSidebar', sidebarId: 'generalSidebar', position: 'left', label: 'Docs'},
         {
@@ -165,7 +148,7 @@ const config: Config = {
       darkTheme: require('prism-react-renderer').themes.dracula,
       additionalLanguages: ['kotlin', 'java', 'bash', 'json', 'groovy', 'yaml'],
     },
-  } satisfies Preset.ThemeConfig,
+  } satisfies ThemeConfig,
 };
 
 export default config;

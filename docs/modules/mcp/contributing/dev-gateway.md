@@ -1,5 +1,6 @@
 ---
 title: Dev gateway
+description: 'Run a development gateway that mounts the signed .modl directly, so a rebuild needs only a restart.'
 sidebar_position: 2
 ---
 

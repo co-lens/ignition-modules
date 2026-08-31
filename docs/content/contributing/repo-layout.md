@@ -1,5 +1,6 @@
 ---
 title: Repo layout
+description: 'How the monorepo is arranged: one directory per module, independent semver, and a release driven by its own tag.'
 sidebar_position: 1
 ---
 

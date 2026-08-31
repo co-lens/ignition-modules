@@ -1,5 +1,6 @@
 ---
 title: Saving from a Designer
+description: 'Every Designer write stages an unsaved change and stops there, so a human reviews it before pressing Save.'
 sidebar_position: 6
 ---
 

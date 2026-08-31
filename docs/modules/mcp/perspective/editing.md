@@ -1,5 +1,6 @@
 ---
 title: Editing views
+description: 'Thirteen Designer-only tools that address components by path, so a bad call is rejected rather than corrupting a view.'
 sidebar_position: 2
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: MCP Inspector
+description: 'Run the MCP Inspector against the gateway to catch spec violations that hand-written curl will not.'
 sidebar_position: 2
 ---
 

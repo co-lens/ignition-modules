@@ -1,6 +1,7 @@
 ---
 slug: /
 title: co-lens Ignition modules
+description: 'Ignition modules written in Kotlin, each carrying independent semver and released by its own tag.'
 sidebar_label: Overview
 sidebar_position: 1
 ---

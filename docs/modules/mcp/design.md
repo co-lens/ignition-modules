@@ -1,5 +1,6 @@
 ---
 title: Why it's small
+description: 'Why the module is about 2,500 lines of Kotlin: three properties that fell out of the design rather than being built.'
 sidebar_position: 9
 ---
 

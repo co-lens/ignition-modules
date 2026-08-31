@@ -1,5 +1,6 @@
 ---
 title: Perspective
+description: 'Perspective is an optional module dependency; what the perspective_* tools do when it is installed, and what happens when it is not.'
 sidebar_label: Overview
 sidebar_position: 1
 ---

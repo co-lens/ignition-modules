@@ -1,5 +1,6 @@
 ---
 title: Tags and UDTs
+description: 'Read and write tag configuration directly, without reaching for run_script.'
 sidebar_position: 4
 ---
 

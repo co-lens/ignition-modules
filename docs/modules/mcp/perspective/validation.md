@@ -1,5 +1,6 @@
 ---
 title: Validation
+description: 'Validate a view against the live component registry and Perspective''s own JSON schemas, catching the mistakes that break hand-edited files.'
 sidebar_position: 3
 ---
 

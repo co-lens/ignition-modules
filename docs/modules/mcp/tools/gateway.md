@@ -1,5 +1,6 @@
 ---
 title: Gateway tools
+description: 'Every tool served on the gateway endpoints, with its arguments and which of them are read-only.'
 sidebar_position: 2
 ---
 

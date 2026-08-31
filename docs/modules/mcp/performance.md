@@ -1,5 +1,6 @@
 ---
 title: Performance
+description: 'Five read-only tools for the question the rest of the tool set does not answer: why is this gateway slow?'
 sidebar_position: 5
 ---
 

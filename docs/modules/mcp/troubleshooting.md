@@ -1,5 +1,6 @@
 ---
 title: Troubleshooting
+description: 'A checklist for when the server will not connect. Work down it — each check assumes the one above it passed.'
 sidebar_position: 8
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Designer tools
+description: 'Every tool served on the Designer''s loopback bridge, with its arguments.'
 sidebar_position: 3
 ---
 

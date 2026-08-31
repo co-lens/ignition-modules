@@ -1,5 +1,6 @@
 ---
 title: Ignition 8.1 vs 8.3
+description: 'Both platform lines carry the same 56 tools; what differs is authentication, the file name, and a short list of behaviours.'
 sidebar_label: Version differences
 sidebar_position: 3
 ---

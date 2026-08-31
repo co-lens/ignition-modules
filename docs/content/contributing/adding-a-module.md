@@ -1,5 +1,6 @@
 ---
 title: Adding a module
+description: 'Six steps to add a module to the monorepo, including the two that fail silently rather than loudly.'
 sidebar_position: 3
 ---
 

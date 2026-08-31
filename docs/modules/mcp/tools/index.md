@@ -1,5 +1,6 @@
 ---
 title: Tool reference
+description: 'Every tool on both scopes, with its arguments.'
 sidebar_label: Overview
 sidebar_position: 1
 ---

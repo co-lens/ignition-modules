@@ -1,5 +1,6 @@
 ---
 title: Quickstart
+description: 'Three steps, about five minutes: get the module, install it, and point your client at it.'
 sidebar_position: 2
 ---
 

@@ -1,5 +1,6 @@
 ---
 title: Reaching a Designer on another machine
+description: 'Reach the Designer bridge when the Designer runs in a VM or on another workstation rather than on loopback.'
 sidebar_label: Remote Designer
 sidebar_position: 1
 ---

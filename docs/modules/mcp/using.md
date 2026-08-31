@@ -1,5 +1,6 @@
 ---
 title: What you can ask for
+description: 'What is actually possible once a client is connected, so you know what to ask for.'
 sidebar_position: 4
 ---
 

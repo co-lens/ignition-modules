@@ -1,5 +1,6 @@
 ---
 title: Docker Compose
+description: 'Running the gateway in a container changes how the module certificate is accepted and what survives a recreate.'
 sidebar_position: 5
 ---
 

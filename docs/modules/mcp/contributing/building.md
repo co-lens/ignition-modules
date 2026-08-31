@@ -1,5 +1,6 @@
 ---
 title: Building
+description: 'Build the module with Gradle, stamp a version, and the clean step that stops the plugin packaging two copies of a library.'
 sidebar_position: 1
 ---
 

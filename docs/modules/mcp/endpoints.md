@@ -1,5 +1,6 @@
 ---
 title: Endpoints and security
+description: 'The gateway and Designer endpoints, the tool counts each serves, and why the Perspective tools change the total.'
 sidebar_label: Endpoints & security
 sidebar_position: 6
 ---

@@ -1,5 +1,6 @@
 ---
 title: Adding a tool
+description: 'Add a tool with one constructor call and a hand-written schema — no annotations and no codegen.'
 sidebar_position: 3
 ---
 

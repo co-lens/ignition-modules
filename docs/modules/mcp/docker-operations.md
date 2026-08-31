@@ -1,5 +1,6 @@
 ---
 title: Docker operations
+description: 'Where an 8.3 API token physically lives, how to move one between gateways, and how to run a fleet.'
 sidebar_position: 9
 ---
 

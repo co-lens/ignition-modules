@@ -53,6 +53,7 @@ const sidebars: SidebarsConfig = {
           items: ['mcp/tools/gateway', 'mcp/tools/designer'],
         },
         'mcp/endpoints',
+        'mcp/docker-operations',
         'mcp/troubleshooting',
         'mcp/clients/inspector',
       ],

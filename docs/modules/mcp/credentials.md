@@ -1,5 +1,6 @@
 ---
 title: Issue a credential
+description: 'What credential each endpoint needs on 8.1 and 8.3, and why devMode is only ever right for a local container.'
 sidebar_position: 3
 ---
 

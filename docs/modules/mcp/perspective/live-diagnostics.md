@@ -1,5 +1,6 @@
 ---
 title: Live diagnostics
+description: 'Walk a view in a running session and report every configured property with its binding, current value and quality.'
 sidebar_position: 4
 ---
 

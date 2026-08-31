@@ -1,5 +1,6 @@
 ---
 title: Releasing
+description: 'Push a tag and the workflow builds, signs and publishes. Each module has its own tag prefix and its own semver.'
 sidebar_position: 2
 ---
 

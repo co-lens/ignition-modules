@@ -1,5 +1,6 @@
 ---
 title: Ignition MCP
+description: 'A Model Context Protocol server that runs inside Ignition as a Kotlin module, giving an AI client structured access to a gateway.'
 sidebar_label: Overview
 sidebar_position: 1
 ---
