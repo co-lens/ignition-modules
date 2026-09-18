@@ -1,0 +1,40 @@
+# Throwaway dev gateway for the report module.
+#
+# Deliberately separate from ../docker-compose.yml: that one is the MCP module's, and the two
+# modules want different JVM flags and different historian state. Both mount an UNSIGNED .modl,
+# which loads because of -Dignition.allowunsignedmodules=true below.
+services:
+  report-gateway:
+    image: inductiveautomation/ignition:8.3.8
+    container_name: report-dev-gw
+    ports:
+      # 18288 rather than 8088: the prism gateway already holds 8088 on this machine, and a port
+      # clash here presents as a container that starts and then immediately exits.
+      - 127.0.0.1:18288:8088
+    volumes:
+      - ../../modules/report/build/Ignition-Report.unsigned.modl:/usr/local/bin/ignition/user-lib/modules/Ignition-Report.modl:ro
+    environment:
+      GATEWAY_ADMIN_PASSWORD: password
+      IGNITION_EDITION: standard
+      ACCEPT_IGNITION_EULA: Y
+      ALLOW_UNSIGNED_MODULES: "true"
+      # Without this, commissioning parks at "Resources needing commissioning: modules" forever
+      # and the gateway never reaches RUNNING — ALLOW_UNSIGNED_MODULES alone is NOT enough, it
+      # permits the module to load but does not acknowledge it. Presents as a gateway that answers
+      # StatusPing perfectly happily while every route 404s.
+      ACCEPT_MODULE_CERTS: io.colens.report-ign
+      # Do NOT set GATEWAY_MODULES_ENABLED. Commissioning treats it as the COMPLETE list of
+      # modules to enable, so naming only ours would disable every stock module — the Historian
+      # included, which is the one thing this gateway exists to talk to.
+    command: >
+      -n report-dev-gw
+      -d
+      --
+      -Dignition.allowunsignedmodules=true
+      -Dia.developer.moduleupload=true
+      -Dreport.devMode=true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8088/StatusPing"]
+      interval: 5s
+      timeout: 3s
+      retries: 60

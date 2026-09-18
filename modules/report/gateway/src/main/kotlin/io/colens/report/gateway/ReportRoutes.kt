@@ -11,6 +11,7 @@ import com.inductiveautomation.ignition.gateway.model.GatewayContext
 import com.inductiveautomation.ignition.gateway.auth.apitoken.ApiTokenManager
 import io.colens.report.common.Aggregates
 import io.colens.report.common.Constants
+import io.colens.report.common.DevMode
 import jakarta.servlet.http.HttpServletResponse
 import org.apache.poi.Version as PoiVersion
 import org.slf4j.LoggerFactory
@@ -47,6 +48,16 @@ class ReportRoutes(
     private val historian = HistorianService(context)
 
     fun mount(routes: RouteGroup) {
+        if (DevMode.enabled()) {
+            logger.warn(
+                "{} is set: every /data/{}/api route will answer requests that carry no API token, " +
+                    "so anyone who can reach this gateway's web port can read historical process " +
+                    "data through it. Intended for an isolated dev gateway and nothing else.",
+                DevMode.PROPERTY,
+                Constants.SHORT_MODULE_ID,
+            )
+        }
+
         routes.newRoute("/health")
             .method(HttpMethod.GET)
             .type(RouteGroup.TYPE_JSON)
@@ -95,7 +106,13 @@ class ReportRoutes(
     private class BadRequest(message: String) : Exception(message)
 
     private fun read(): AccessControlStrategy =
-        AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_ACCESS)
+        if (DevMode.enabled()) {
+            // OPEN_ROUTE rather than a TOKEN_* strategy: those still consult the gateway's
+            // permission sets, and the point of the flag is that nothing is consulted at all.
+            AccessControlStrategy.OPEN_ROUTE
+        } else {
+            AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_ACCESS)
+        }
 
     private fun requireValidToken() = AccessControlStrategy { request ->
         if (context.apiTokenManager.validateRequest(request).isPresent) {
@@ -185,6 +202,9 @@ class ReportRoutes(
         // The zone every schedule resolves against. Reported because a report that fires an hour
         // late twice a year is otherwise diagnosed by guesswork.
         "gatewayTimezone" to ZoneId.systemDefault().id,
+        // Reported rather than hidden: an unauthenticated caller can already discover this by
+        // simply calling a data route and being answered.
+        "devMode" to DevMode.enabled(),
     )
 
     private fun HistorianService.QueryResult.asMap(): Map<String, Any?> = mapOf(

@@ -21,6 +21,8 @@ import com.inductiveautomation.ignition.common.model.values.QualityCode
 import com.inductiveautomation.ignition.common.sqltags.history.AggregationMode
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
 import io.colens.report.common.Aggregates
+import io.colens.report.common.HistorianPaths
+import io.colens.report.common.RowAssembler
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.CountDownLatch
@@ -91,12 +93,31 @@ class HistorianService(private val context: GatewayContext) {
             .endTime(endTime)
 
         if (includeBounds) builder.includeBounds() else builder.excludeBounds()
-        windowSize?.let { (count, unit) -> builder.withTimeWindow(TimeWindow.of(count, unit)) }
         returnSize?.let { builder.returnSize(it) }
+
+        /*
+         * A time window is MANDATORY, despite being optional on the builder: leaving it unset
+         * throws deep inside the historian with "Cannot invoke TimeWindow.size() because
+         * timeWindow is null", which reaches the caller as a 500 with no usable cause. Found by
+         * calling the endpoint, not by reading the API.
+         *
+         * `system.historian.queryAggregatedPoints` has no windowSize parameter at all, so the
+         * default has to reproduce what it does: one aggregate value per path across the whole
+         * range. Hence the ladder — an explicit window wins, then returnSize divides the range
+         * into that many equal windows, and otherwise the window IS the range.
+         */
+        builder.withTimeWindow(
+            when {
+                windowSize != null -> TimeWindow.of(windowSize.first, windowSize.second)
+                returnSize != null && returnSize > 0 ->
+                    TimeWindow.ofMillis(maxOf(1, java.time.Duration.between(startTime, endTime).toMillis() / returnSize))
+                else -> TimeWindow.ofMillis(maxOf(1, java.time.Duration.between(startTime, endTime).toMillis()))
+            },
+        )
 
         val collector = AggregatedCollector(keys, columnNames)
         engine(historian).query(builder.build(), collector)
-        collector.await()
+        collector.await(queryTimeout)
         return collector.result(startTime, endTime)
     }
 
@@ -124,7 +145,7 @@ class HistorianService(private val context: GatewayContext) {
 
         val collector = RawCollector(keys, columnNames)
         engine(historian).query(builder.build(), collector)
-        collector.await()
+        collector.await(queryTimeout)
         return collector.result(startTime, endTime)
     }
 
@@ -137,12 +158,25 @@ class HistorianService(private val context: GatewayContext) {
                     "required dependency on it, so this generally means the historian failed to start.",
             )
 
-    private fun engine(historian: String): QueryEngine =
-        manager().getQueryEngine(historian).orElseThrow {
-            HistorianUnavailable(
-                "No historian named '$historian'. Available: ${historianNames().joinToString(", ").ifEmpty { "none" }}.",
+    /**
+     * A configured historian and a QUERYABLE one are different things — a historian that failed to
+     * start is still listed by name. Reporting both cases with one message produced the genuinely
+     * useless "No historian named 'Internal'. Available: Internal.", so they are separated here.
+     */
+    private fun engine(historian: String): QueryEngine {
+        val known = historianNames()
+        if (historian !in known) {
+            throw HistorianUnavailable(
+                "No historian named '$historian'. Available: ${known.joinToString(", ").ifEmpty { "none" }}.",
             )
         }
+        return manager().getQueryEngine(historian).orElseThrow {
+            HistorianUnavailable(
+                "Historian '$historian' is configured but not queryable — it most likely failed to " +
+                    "start. Check the gateway logs for 'Error adding historian: $historian'.",
+            )
+        }
+    }
 
     /**
      * `system.historian`'s aggregate names ARE the legacy `AggregationMode` names, bridged by
@@ -177,55 +211,40 @@ class HistorianService(private val context: GatewayContext) {
     )
 
     /**
-     * Collects a streaming query into a WIDE result.
+     * Adapts the historian's streaming callbacks onto [RowAssembler].
      *
-     * The historian publishes points as it finds them, per key, in no guaranteed interleaving — so
-     * rows are assembled into a timestamp-keyed map rather than appended. Using a sorted map keeps
-     * the output in time order without a separate sort pass and without assuming the provider
-     * emits in order, which is not part of the contract.
+     * Deliberately thin. Everything with logic in it — placement, ordering, gaps, de-duplicated
+     * warnings — lives in RowAssembler in `common`, where it is unit-tested with no Ignition and
+     * no Historian module present. A live historian cannot be stood up in CI, so anything that
+     * stays here is effectively untested.
      */
     private abstract class Collector<K>(keys: List<K>, columnNames: List<String>) {
         private val latch = CountDownLatch(1)
-        private val rowsByTime = sortedMapOf<Long, Array<Any?>>()
-        protected val columnIndex: Map<K, Int> = keys.withIndex().associate { (i, k) -> k to i }
-        private val headings: List<String> = keys.indices.map { i ->
-            columnNames.getOrNull(i)?.takeIf { it.isNotBlank() } ?: defaultHeading(keys[i])
-        }
-        private val problems = mutableListOf<String>()
+        protected val assembler = RowAssembler(keys, columnNames, ::heading)
 
-        protected abstract fun defaultHeading(key: K): String
-
-        protected fun record(key: K, timestamp: Instant, value: Any?) {
-            val index = columnIndex[key] ?: return
-            val row = rowsByTime.getOrPut(timestamp.toEpochMilli()) { arrayOfNulls(columnIndex.size) }
-            row[index] = value
-        }
-
-        fun recordKeyFailure(key: K, quality: QualityCode) {
-            // Recorded rather than thrown: one bad tag path must not blank an entire report, and a
-            // column that is silently empty is indistinguishable from a tag with no data.
-            problems += "${defaultHeading(key)}: ${quality.name}"
-        }
+        protected abstract fun heading(key: K): String
 
         fun fail(message: String) {
-            problems += message
+            assembler.recordFailure(message)
+            // Counted down, not left hanging: onComplete is not guaranteed after onError, and a
+            // caller blocked on the latch would sit there until the timeout for no reason.
             latch.countDown()
         }
 
         fun finish() = latch.countDown()
 
-        fun await(timeoutMinutes: Long = 2) {
-            if (!latch.await(timeoutMinutes, TimeUnit.MINUTES)) {
-                throw QueryFailed("The historian query did not complete within $timeoutMinutes minutes.")
+        fun await(timeout: java.time.Duration) {
+            if (!latch.await(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                throw QueryFailed("The historian query did not complete within ${timeout.toMinutes()} minutes.")
             }
         }
 
         fun result(start: Instant, end: Instant) = QueryResult(
             startTime = start,
             endTime = end,
-            columns = listOf("timestamp") + headings,
-            rows = rowsByTime.map { (millis, values) -> listOf<Any?>(millis) + values.toList() },
-            warnings = problems.toList(),
+            columns = assembler.columns(),
+            rows = assembler.rows(),
+            warnings = assembler.warnings(),
         )
     }
 
@@ -234,17 +253,19 @@ class HistorianService(private val context: GatewayContext) {
         columnNames: List<String>,
     ) : Collector<AggregatedQueryKey>(keys, columnNames), AggregatedPointProcessor {
 
-        override fun defaultHeading(key: AggregatedQueryKey): String =
-            "${io.colens.report.common.HistorianPaths.displayName(key.source().toString())} (${key.aggregationType().name()})"
+        /** Path plus aggregate, because one tag legitimately appears several times in a group. */
+        override fun heading(key: AggregatedQueryKey): String =
+            "${HistorianPaths.displayName(key.source().toString())} (${key.aggregationType().name()})"
 
         override fun onInitialize(ctx: ProcessingContext<AggregatedQueryKey, DataPointType>): Boolean = true
 
         override fun onPointAvailable(key: AggregatedQueryKey, point: AggregatedPoint<*, *>): Boolean {
-            record(key, point.timestamp(), point.value())
+            assembler.record(key, point.timestamp().toEpochMilli(), point.value())
             return true
         }
 
-        override fun onKeyFailure(key: AggregatedQueryKey, quality: QualityCode) = recordKeyFailure(key, quality)
+        override fun onKeyFailure(key: AggregatedQueryKey, quality: QualityCode) =
+            assembler.recordKeyFailure(key, quality.name)
 
         override fun onError(quality: QualityCode) = fail("Historian query failed: ${quality.name}")
 
@@ -258,17 +279,18 @@ class HistorianService(private val context: GatewayContext) {
         columnNames: List<String>,
     ) : Collector<RawQueryKey>(keys, columnNames), RawPointProcessor {
 
-        override fun defaultHeading(key: RawQueryKey): String =
-            io.colens.report.common.HistorianPaths.displayName(key.source().toString())
+        override fun heading(key: RawQueryKey): String =
+            HistorianPaths.displayName(key.source().toString())
 
         override fun onInitialize(ctx: ProcessingContext<RawQueryKey, DataPointType>): Boolean = true
 
         override fun onPointAvailable(key: RawQueryKey, point: AtomicPoint<*>): Boolean {
-            record(key, point.timestamp(), point.value())
+            assembler.record(key, point.timestamp().toEpochMilli(), point.value())
             return true
         }
 
-        override fun onKeyFailure(key: RawQueryKey, quality: QualityCode) = recordKeyFailure(key, quality)
+        override fun onKeyFailure(key: RawQueryKey, quality: QualityCode) =
+            assembler.recordKeyFailure(key, quality.name)
 
         override fun onError(quality: QualityCode) = fail("Historian query failed: ${quality.name}")
 
