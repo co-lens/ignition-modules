@@ -22,8 +22,7 @@ wrong command silently loses the test data you just set up.
 The gateway logs a WARN saying so at startup. Never set it anywhere real.
 
 The Historian module is licensed (`freeModule=false`), so a fresh container runs it on a two-hour
-trial. When queries start failing with a licensing error, `docker compose restart` resets the
-clock — the trial, not the data, is what expired.
+demo. See the licensing note at the end — a restart does NOT reset it.
 
 ## Configuring a historian
 
@@ -69,9 +68,7 @@ Three things here cost an hour to work out, so they are worth stating plainly:
   historian is then *listed by name* but fails to start, logging `Error adding historian: Internal`
   while `/api/historians` cheerfully reports it. That mismatch is why `HistorianService` reports
   "configured but not queryable" separately from "no such historian".
-- Historian Core is a licensed module, so this gateway runs it on a two-hour trial. `docker compose
-  restart` resets the clock.
-
+- Historian Core's demo expiry is covered at the end of this file.
 A historian with no data answers raw queries with an empty result, and aggregated queries with
 `Bad_Unsupported` for tags it has never seen. Both are correct — and both are reported as
 `warnings` rather than thrown, so one unknown tag cannot blank a whole report.
@@ -156,3 +153,24 @@ So the add-in cannot be sideloaded against this container as it stands — it ne
 
 `/data/report/manifest.xml` deliberately refuses to emit over `http://` and says so, rather than
 producing a manifest that Office would reject silently.
+
+
+## When the historian stops answering
+
+Historian Core is a licensed module, so this gateway runs it on a two-hour demo. **A container
+restart does NOT reset it.** The expiry is recorded in the data directory and survives one:
+
+```
+SQL Historian access level changed: Demo_Enabled -> Demo_Expired
+License does not support storage.  route-path=/api/storeDataPoints
+License does not support querying. route-path=/api/browse
+```
+
+Reset it from the gateway UI: a yellow **Trial Expired** banner sits at the bottom of any page
+with a reset button (log in first). Recreating the container also resets it, at the cost of the
+historian config, every stored point and every API key.
+
+What it looks like from outside is worth knowing, because it does not look like licensing:
+`storeDataPoints` answers `{"stored":0,"failed":9,"quality":"Bad_TrialExpired"}`, but `browse`
+returns an empty node list with no error — which reads exactly like a historian that simply has
+no data in it.
