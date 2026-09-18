@@ -74,14 +74,19 @@ object ManifestBuilder {
         val id = addinId(baseUrl)
 
         /*
-         * The version must be a plain four-part number. Office rejects anything else outright, and
-         * a dev build's version is "0.1.0-SNAPSHOT" — so the qualifier is stripped rather than
-         * passed through to produce a manifest that will not load.
+         * A plain four-part number, with a MAJOR OF AT LEAST 1.
+         *
+         * Two separate rules, both enforced by Office and neither obvious. It rejects any version
+         * carrying a qualifier, so "0.1.0-SNAPSHOT" has to be trimmed; and it rejects anything
+         * below 1.0 outright — "Manifest Version Too Low" — which every pre-1.0 module version
+         * would otherwise hit. The floor is applied here rather than forcing the module itself to
+         * pretend it is 1.0: this number is Office's notion of the add-in version, not the
+         * module's, and the two need not agree.
          */
-        val manifestVersion = version.takeWhile { it.isDigit() || it == '.' }
-            .trim('.')
-            .split('.')
-            .let { parts -> (parts + listOf("0", "0", "0", "0")).take(4).joinToString(".") }
+        val numeric = version.takeWhile { it.isDigit() || it == '.' }.trim('.').split('.')
+        val parts = (numeric + listOf("0", "0", "0", "0")).take(4).toMutableList()
+        if ((parts[0].toIntOrNull() ?: 0) < 1) parts[0] = "1"
+        val manifestVersion = parts.joinToString(".")
 
         return """
             <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -96,6 +101,12 @@ object ManifestBuilder {
               <DefaultLocale>en-US</DefaultLocale>
               <DisplayName DefaultValue="Ignition Report"/>
               <Description DefaultValue="Build Excel reports from Ignition historian data."/>
+              <IconUrl DefaultValue="$app/icon-32.png"/>
+              <HighResolutionIconUrl DefaultValue="$app/icon-80.png"/>
+              <!-- Required by the schema, and element order here is fixed: SupportUrl must follow
+                   the icon URLs and precede Hosts. It points at the gateway serving the add-in,
+                   which for an on-premises install is genuinely where support starts. -->
+              <SupportUrl DefaultValue="$baseUrl/data/${Constants.SHORT_MODULE_ID}/health"/>
               <Hosts>
                 <Host Name="Workbook"/>
               </Hosts>
@@ -127,6 +138,15 @@ object ManifestBuilder {
                         <OfficeTab id="TabHome">
                           <Group id="IgnitionReport.Group">
                             <Label resid="Group.Label"/>
+                            <!-- A Group's children are ORDERED: Label, then Icon, then Controls.
+                                 Omitting the Icon fails schema validation with "invalid child
+                                 element 'Control' ... expected 'Icon'", which Excel reports to the
+                                 user as nothing more than "Your add-in manifest is not valid". -->
+                            <Icon>
+                              <bt:Image size="16" resid="Icon.16"/>
+                              <bt:Image size="32" resid="Icon.32"/>
+                              <bt:Image size="80" resid="Icon.80"/>
+                            </Icon>
                             <Control xsi:type="Button" id="IgnitionReport.Open">
                               <Label resid="Open.Label"/>
                               <Supertip>
