@@ -30,7 +30,7 @@ class GatewayHook : AbstractGatewayModuleHook() {
 
     override fun startup(activationState: LicenseState) {
         logger.info(
-            "Ignition Report {} started. Routes at /data/{}/, add-in at /res/{}/addin/.",
+            "Ignition Report {} started. Routes at /data/{}/, add-in at /res/{}/.",
             moduleVersion(),
             Constants.SHORT_MODULE_ID,
             Constants.SHORT_MODULE_ID,
@@ -45,7 +45,8 @@ class GatewayHook : AbstractGatewayModuleHook() {
     override fun getMountPathAlias(): Optional<String> = Optional.of(Constants.SHORT_MODULE_ID)
 
     /**
-     * Serves everything under `src/main/resources/addin` at `/res/report/addin`.
+     * Serves the CONTENTS of `src/main/resources/addin` at `/res/report` — the folder named
+     * here is stripped, not appended.
      *
      * (Glob stars are spelled out in prose here on purpose: Kotlin block comments NEST, so a
      * literal slash-star-star inside KDoc opens a second comment and the closing delimiter

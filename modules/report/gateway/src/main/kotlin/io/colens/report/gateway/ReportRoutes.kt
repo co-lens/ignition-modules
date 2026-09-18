@@ -72,6 +72,39 @@ class ReportRoutes(
             .handler { _, _ -> gson.toJson(health()) }
             .mount()
 
+        /**
+         * The Office add-in manifest, generated for THIS gateway.
+         *
+         * Open, like /health: Excel fetches it before any token exists, and it contains no plant
+         * data — only URLs pointing back here.
+         */
+        routes.newRoute("/manifest.xml")
+            .method(HttpMethod.GET)
+            .type("application/xml")
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
+            .handler { ctx, res ->
+                val base = ManifestBuilder.baseUrl(ctx)
+                if (ManifestBuilder.isInsecure(base)) {
+                    /*
+                     * Refused rather than served. Office requires HTTPS for add-in resources and
+                     * rejects an http:// manifest silently — differently on each platform, and
+                     * with nothing the user can act on beyond "the add-in doesn't appear". A plain
+                     * error here is the only chance to say so while somebody can still fix it.
+                     */
+                    res.status = HttpServletResponse.SC_BAD_REQUEST
+                    res.contentType = "text/plain"
+                    "This gateway was reached over HTTP at $base. Office only loads add-ins over " +
+                        "HTTPS, so a manifest built from this address would fail to install with no " +
+                        "visible error. Reach the gateway over HTTPS, or set -Dreport.publicUrl to " +
+                        "its public HTTPS address if it sits behind a reverse proxy."
+                } else {
+                    res.contentType = "application/xml"
+                    res.setHeader("Content-Disposition", "attachment; filename=\"ignition-report-manifest.xml\"")
+                    ManifestBuilder.build(base, moduleVersion())
+                }
+            }
+            .mount()
+
         json(routes, "/api/historians", HttpMethod.GET, read()) { _ ->
             mapOf(
                 "historians" to historianService.historianNames().map { name ->
@@ -110,6 +143,35 @@ class ReportRoutes(
          * not be able to fabricate history: a report whose numbers can be edited by whoever can
          * read it is worth nothing to anybody auditing it.
          */
+        /**
+         * Mirrors `system.historian.browse`.
+         *
+         * One level per call. A plant historian holds tens of thousands of tags, and a picker that
+         * fetches them all to show twelve is the difference between a tag browser that opens
+         * instantly and one nobody uses.
+         */
+        json(routes, "/api/browse", HttpMethod.POST, read()) { body ->
+            val request = body ?: JsonObject()
+            val historian = request.string("historian") ?: defaultHistorian()
+            mapOf(
+                "historian" to historian,
+                "path" to request.string("path"),
+                "nodes" to historianService.browse(
+                    historian = historian,
+                    path = request.string("path"),
+                    maxResults = request.int("maxResults") ?: 500,
+                ).map {
+                    mapOf(
+                        "name" to it.value,
+                        "type" to it.name,
+                        "path" to it.path,
+                        "queryPath" to it.queryPath,
+                        "hasChildren" to it.hasChildren,
+                    )
+                },
+            )
+        }
+
         /**
          * The report-shaped query: a DataGroup in, a block of cells out.
          *
@@ -266,6 +328,20 @@ class ReportRoutes(
     private fun gatewayName(): String =
         context.systemPropertiesManager.getPropertyValue(GatewaySystemProperties.SystemName) ?: ""
 
+    /**
+     * The vendored add-in bundle's own build stamp, read from the jar.
+     *
+     * Reported because a stale bundle MOSTLY WORKS — the gateway serves last month's JavaScript
+     * against this month's routes, and the failures are partial and confusing rather than obvious.
+     */
+    private fun addinBuildInfo(): Any =
+        runCatching {
+            javaClass.getResourceAsStream("/addin/build-info.json")?.use {
+                JsonParser.parseString(it.reader().readText()).asJsonObject.asMap()
+                    .mapValues { (_, value) -> value.asString }
+            }
+        }.getOrNull() ?: mapOf("status" to "no bundle vendored")
+
     private class BadRequest(message: String) : Exception(message)
 
     private fun write(): AccessControlStrategy =
@@ -373,8 +449,11 @@ class ReportRoutes(
         "historians" to runCatching { historianService.historianNames() }.getOrElse { emptyList() },
         "aggregates" to Aggregates.NAMES,
         "fillModes" to Aggregates.FILL_MODES,
-        "addinUrl" to "/res/${Constants.SHORT_MODULE_ID}/addin/taskpane.html",
+        "addinUrl" to "/res/${Constants.SHORT_MODULE_ID}/taskpane.html",
         "manifestUrl" to "/data/${Constants.SHORT_MODULE_ID}/manifest.xml",
+        // What the add-in bundle reports about itself, so a stale vendored copy is visible rather
+        // than something you deduce from behaviour.
+        "addin" to addinBuildInfo(),
         // The zone every schedule resolves against. Reported because a report that fires an hour
         // late twice a year is otherwise diagnosed by guesswork.
         "gatewayTimezone" to ZoneId.systemDefault().id,

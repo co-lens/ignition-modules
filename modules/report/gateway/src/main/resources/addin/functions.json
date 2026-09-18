@@ -1,0 +1,96 @@
+{
+    "allowCustomDataForDataTypeAny": true,
+    "functions": [
+        {
+            "description": "Tag history as a spilled block.",
+            "id": "HISTORY",
+            "name": "HISTORY",
+            "parameters": [
+                {
+                    "description": "Tag path, e.g. \"Line1/Flow\" or a fully qualified historian path.",
+                    "name": "tagPath",
+                    "type": "string"
+                },
+                {
+                    "description": "Start of the range, as a cell containing a date.",
+                    "name": "startTime",
+                    "type": "number"
+                },
+                {
+                    "description": "End of the range, as a cell containing a date.",
+                    "name": "endTime",
+                    "type": "number"
+                },
+                {
+                    "description": "Interval, e.g. \"1 hour\" or \"15 minutes\". Omit for a single value.",
+                    "name": "interval",
+                    "optional": true,
+                    "type": "string"
+                },
+                {
+                    "description": "Aggregate name, e.g. \"Average\", \"Minimum\", \"Maximum\".",
+                    "name": "aggregate",
+                    "optional": true,
+                    "type": "string"
+                }
+            ],
+            "result": {
+                "dimensionality": "matrix"
+            }
+        },
+        {
+            "description": "Every stored value over a range, with no aggregation.",
+            "id": "RAW",
+            "name": "RAW",
+            "parameters": [
+                {
+                    "description": "Tag path.",
+                    "name": "tagPath",
+                    "type": "string"
+                },
+                {
+                    "description": "Start of the range, as a cell containing a date.",
+                    "name": "startTime",
+                    "type": "number"
+                },
+                {
+                    "description": "End of the range, as a cell containing a date.",
+                    "name": "endTime",
+                    "type": "number"
+                }
+            ],
+            "result": {
+                "dimensionality": "matrix"
+            }
+        },
+        {
+            "description": "A single aggregated value over a range — the workhorse for a summary cell.",
+            "id": "VALUE",
+            "name": "VALUE",
+            "parameters": [
+                {
+                    "description": "Tag path.",
+                    "name": "tagPath",
+                    "type": "string"
+                },
+                {
+                    "description": "Start of the range, as a cell containing a date.",
+                    "name": "startTime",
+                    "type": "number"
+                },
+                {
+                    "description": "End of the range, as a cell containing a date.",
+                    "name": "endTime",
+                    "type": "number"
+                },
+                {
+                    "description": "Aggregate name. Defaults to Average.",
+                    "name": "aggregate",
+                    "optional": true,
+                    "type": "string"
+                }
+            ],
+            "result": {}
+        }
+    ]
+}

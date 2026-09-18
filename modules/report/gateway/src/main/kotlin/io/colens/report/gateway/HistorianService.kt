@@ -13,6 +13,8 @@ import com.inductiveautomation.historian.common.model.options.RawQueryOptions
 import com.inductiveautomation.historian.gateway.api.HistorianManager
 import com.inductiveautomation.historian.common.model.data.DataPointFactory
 import com.inductiveautomation.historian.gateway.api.query.QueryEngine
+import com.inductiveautomation.historian.gateway.api.query.browsing.BrowsePublisher
+import com.inductiveautomation.ignition.common.browsing.BrowseFilter
 import com.inductiveautomation.historian.gateway.api.storage.StorageEngine
 import com.inductiveautomation.historian.gateway.api.query.processor.AggregatedPointProcessor
 import com.inductiveautomation.historian.gateway.api.query.processor.ProcessingContext
@@ -135,6 +137,133 @@ class HistorianService(private val context: GatewayContext) {
             failed = result.failedData().size,
             quality = result.qualityCode().name,
         )
+    }
+
+    /**
+     * Mirrors `system.historian.browse`.
+     *
+     * Walks one level of a historian's node tree. One level, not recursive: a plant historian has
+     * tens of thousands of tags, and a browser that fetches them all to show twelve is the
+     * difference between a tag picker that opens instantly and one nobody uses.
+     */
+    fun browse(historian: String, path: String?, maxResults: Int = 500): List<BrowseNode> {
+        val root = if (path.isNullOrBlank()) {
+            QualifiedPath.Builder().build()
+        } else {
+            QualifiedPath.parse(path)
+        }
+
+        val filter = BrowseFilter()
+        filter.maxResults = maxResults
+
+        val collector = BrowseCollector(maxResults)
+        engine(historian).browse(root, filter, collector)
+
+        val parent = path?.trim().orEmpty()
+        return collector.nodes
+            /*
+             * The provider hands back one SEGMENT — ("tag", "line2") — not a path. Accumulating it
+             * here rather than in the client is deliberate: the qualified-path grammar
+             * (`sys:x:/prov:y:/tag:z`, segments joined by ":/") is exactly the kind of thing three
+             * different callers would each get subtly wrong.
+             */
+            .map { node ->
+                val segment = "${node.name}:${node.value}"
+                node.copy(
+                    path = if (parent.isEmpty()) segment else "$parent:/$segment",
+                    /*
+                     * Only leaves get a queryPath. A folder has none — feeding one to a query
+                     * returns nothing rather than erroring, so handing the client something that
+                     * looks usable would invite exactly that.
+                     */
+                    queryPath = if (node.hasChildren) null else {
+                        val full = if (parent.isEmpty()) segment else "$parent:/$segment"
+                        "histprov:$historian:/$full"
+                    },
+                )
+            }
+            .sortedWith(compareBy({ !it.hasChildren }, { it.value.lowercase() }))
+    }
+
+    data class BrowseNode(
+        /** The segment TYPE the provider reported — `sys`, `prov`, `tag`. */
+        val name: String,
+        /** The segment value: the gateway name, provider name, or tag/folder name. */
+        val value: String,
+        val hasChildren: Boolean,
+        /** Full browse path of this node; pass it straight back to browse to drill in. */
+        val path: String = "",
+        /** Fully qualified path usable as a query `paths` entry. Null for folders. */
+        val queryPath: String? = null,
+        val displayPath: String? = null,
+    )
+
+    /**
+     * Collects a browse into a list.
+     *
+     * The publisher contract is push-based and can be cancelled mid-walk, which is what
+     * [isCanceled] is for — reporting true once the cap is reached stops the provider enumerating
+     * a folder of fifty thousand tags we would only throw away.
+     *
+     * [recurse] deliberately returns `this` rather than a child collector. Recursion is not wanted
+     * here (see [browse]), and returning this keeps any provider that calls it from failing on a
+     * null.
+     */
+    private class BrowseCollector(private val maxResults: Int) : BrowsePublisher {
+        val nodes = mutableListOf<BrowseNode>()
+
+        override fun isCanceled(): Boolean = nodes.size >= maxResults
+
+        override fun getResultCount(): Int = nodes.size
+
+        override fun setContinuationPoint(point: String?) = Unit
+
+        override fun setTotalResultsAvailable(total: Int) = Unit
+
+        override fun newNode(name: String?, path: String?): BrowsePublisher.NodeBuilder =
+            NodeCollector(name.orEmpty(), path.orEmpty())
+
+        override fun recurse(): BrowsePublisher = this
+
+        override fun recurse(path: QualifiedPath?): BrowsePublisher = this
+
+        private inner class NodeCollector(
+            private val name: String,
+            private val value: String,
+        ) : BrowsePublisher.NodeBuilder {
+            private var hasChildren = false
+            private var displayPath: String? = null
+
+            /*
+             * Every parameter here is NULLABLE, even though the Java interface does not say so.
+             * The provider calls retiredTime(null) for any tag that has not been retired — which
+             * is most of them — and Kotlin's generated non-null check turns that into
+             * "Parameter specified as non-null is null" from inside the browse walk. The Java
+             * signature is simply unannotated, so Kotlin's platform type defaulted to non-null and
+             * was wrong.
+             */
+            override fun creationTime(instant: Instant?) = this
+
+            override fun retiredTime(instant: Instant?) = this
+
+            override fun metadata(point: com.inductiveautomation.historian.common.model.data.MetadataPoint?) = this
+
+            override fun displayPath(path: com.inductiveautomation.ignition.common.Path?): BrowsePublisher.NodeBuilder {
+                displayPath = path?.toString()
+                return this
+            }
+
+            override fun hasChildren(value: Boolean): BrowsePublisher.NodeBuilder {
+                hasChildren = value
+                return this
+            }
+
+            /** Nothing is collected until add(); a builder that is never added is a node the
+             *  provider decided against. */
+            override fun add() {
+                nodes += BrowseNode(name = name, value = value, hasChildren = hasChildren, displayPath = displayPath)
+            }
+        }
     }
 
     /**
