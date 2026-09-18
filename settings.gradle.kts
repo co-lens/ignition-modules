@@ -26,6 +26,14 @@ include(
     ":modules:mcp:designer",
 )
 
+// The Excel reporting module. No designer scope: its only user-facing surface is the Excel
+// add-in and the gateway web config, so there is nothing for a Designer hook to own.
+include(
+    ":modules:report",
+    ":modules:report:common",
+    ":modules:report:gateway",
+)
+
 // Build tooling, deliberately OUTSIDE any module's subtree. The modl plugin only wires projects
 // inside the project that applies it, so nothing here can end up in a shipped .modl, and no
 // module's `check` depends on it.
