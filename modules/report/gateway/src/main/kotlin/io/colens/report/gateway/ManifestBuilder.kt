@@ -117,13 +117,19 @@ object ManifestBuilder {
               <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
                 <Hosts>
                   <Host xsi:type="Workbook">
-                    <!-- A SHARED runtime, so on Windows the custom functions get a browser runtime
-                         and can see the task pane's state. Nothing in the code may ASSUME it: on
-                         Mac and the web the runtimes are separate regardless, which is why the API
-                         token travels through OfficeRuntime.storage rather than a shared global. -->
-                    <Runtimes>
-                      <Runtime resid="Taskpane.Url" lifetime="long"/>
-                    </Runtimes>
+                    <!-- NO <Runtimes> element, deliberately.
+                         
+                         It requests a SHARED runtime, which is a Windows feature: Excel on the web
+                         cannot provide one, and declaring it there leaves Office.onReady pending
+                         FOREVER. The pane loads, `typeof Office` is "object", and the handshake
+                         simply never completes — with no error in the pane, the console or the
+                         Office UI. That cost a debugging session, and the only reason it was found
+                         is that the pane now reports its own startup state.
+                         
+                         Nothing here needs one. The API token travels between the task pane and
+                         the custom-function runtime through OfficeRuntime.storage precisely
+                         because the two are separate runtimes on Mac and the web regardless, so
+                         the shared runtime would have bought nothing but this failure. -->
                     <AllFormFactors>
                       <ExtensionPoint xsi:type="CustomFunctions">
                         <Script><SourceLocation resid="Functions.Script"/></Script>
