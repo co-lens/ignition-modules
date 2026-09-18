@@ -89,6 +89,18 @@ ignitionModule {
         )
     )
 
+    // Ignition grants classloader visibility of another module's classes only through a declared
+    // dependency — without this the historian code compiles and then cannot load at all. Required
+    // rather than optional: this module exists to report on historian data, so a gateway without
+    // the Historian module has nothing for it to do, and Ignition's own missing-dependency report
+    // is a better diagnostic than every query failing at run time.
+    moduleDependencySpecs {
+        register("com.inductiveautomation.historian") {
+            scope = "G"
+            required = true
+        }
+    }
+
     hooks.putAll(
         mapOf(
             "io.colens.report.gateway.GatewayHook" to "G",

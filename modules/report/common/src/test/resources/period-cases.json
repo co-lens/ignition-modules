@@ -1,0 +1,175 @@
+{
+	"$comment": [
+		"Golden period-resolution cases, shared BYTE-IDENTICALLY by two test suites: the add-in's",
+		"Vitest suite and the gateway module's kotest suite.",
+		"",
+		"Period resolution exists twice on purpose — the gateway is authoritative, and the add-in",
+		"keeps a local copy solely so the taskpane's period picker can show a resolved range",
+		"without a round trip per keystroke. Two implementations of the same rules drift SILENTLY:",
+		"both compile, both look right, and the only symptom is an interactive refresh and a 06:00",
+		"scheduled email covering different hours, each plausible on its own. This file is the",
+		"contract that makes that drift a red test instead of a support call.",
+		"",
+		"Times are local wall-clock in `zone`. Both suites pin the process timezone to it, because",
+		"both resolvers deliberately use the AMBIENT zone — that is the real runtime behaviour, and",
+		"testing it any other way would test something we do not ship.",
+		"",
+		"Cases marked xlreporter are verbatim from XLReporter's History Data Groups specification."
+	],
+	"zone": "America/New_York",
+	"cases": [
+		{
+			"name": "relative current month, no start time",
+			"source": "xlreporter",
+			"now": "2026-04-12T00:00:00",
+			"clampEndToNow": false,
+			"period": { "kind": "relative", "duration": { "count": 1, "unit": "month" }, "anchor": "current" },
+			"expect": { "start": "2026-04-12T00:00:00", "end": "2026-05-12T00:00:00" }
+		},
+		{
+			"name": "relative previous month, no start time",
+			"source": "xlreporter",
+			"now": "2026-04-12T00:00:00",
+			"clampEndToNow": false,
+			"period": { "kind": "relative", "duration": { "count": 1, "unit": "month" }, "anchor": "previous" },
+			"expect": { "start": "2026-03-12T00:00:00", "end": "2026-04-12T00:00:00" }
+		},
+		{
+			"name": "relative current day, start at 08:00, evaluated mid-shift",
+			"source": "xlreporter",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"startAt": { "hour": 8, "minute": 0 }
+			},
+			"expect": { "start": "2026-04-12T08:00:00", "end": "2026-04-13T08:00:00" }
+		},
+		{
+			"name": "relative previous day, start at 08:00",
+			"source": "xlreporter",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "previous",
+				"startAt": { "hour": 8, "minute": 0 }
+			},
+			"expect": { "start": "2026-04-11T08:00:00", "end": "2026-04-12T08:00:00" }
+		},
+		{
+			"name": "before the daily start time the current period is still yesterday's",
+			"note": "05:00 precedes the 08:00 shift start. Snapping naively to today 08:00 would report a period that has not begun.",
+			"now": "2026-04-12T05:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"startAt": { "hour": 8, "minute": 0 }
+			},
+			"expect": { "start": "2026-04-11T08:00:00", "end": "2026-04-12T08:00:00" }
+		},
+		{
+			"name": "offset of zero matches the equivalent relative period",
+			"source": "xlreporter",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "offset",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"startAt": { "hour": 8, "minute": 0 },
+				"offset": { "count": 0, "unit": "day" }
+			},
+			"expect": { "start": "2026-04-12T08:00:00", "end": "2026-04-13T08:00:00" }
+		},
+		{
+			"name": "offset minus one day",
+			"source": "xlreporter",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "offset",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"startAt": { "hour": 8, "minute": 0 },
+				"offset": { "count": 1, "unit": "day" }
+			},
+			"expect": { "start": "2026-04-11T08:00:00", "end": "2026-04-12T08:00:00" }
+		},
+		{
+			"name": "offset minus one month keeps both the day of month and the duration",
+			"source": "xlreporter",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "offset",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"startAt": { "hour": 8, "minute": 0 },
+				"offset": { "count": 1, "unit": "month" }
+			},
+			"expect": { "start": "2026-03-12T08:00:00", "end": "2026-03-13T08:00:00" }
+		},
+		{
+			"name": "clamping turns current day into day-to-date",
+			"note": "The runtime rule that makes a template reusable: a schedule running daily returns 08:00 through now, growing as the shift proceeds, instead of a day of empty future intervals.",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": true,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"startAt": { "hour": 8, "minute": 0 }
+			},
+			"expect": { "start": "2026-04-12T08:00:00", "end": "2026-04-12T10:00:00" }
+		},
+		{
+			"name": "a completed previous period is not clamped",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": true,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "previous",
+				"startAt": { "hour": 8, "minute": 0 }
+			},
+			"expect": { "start": "2026-04-11T08:00:00", "end": "2026-04-12T08:00:00" }
+		},
+		{
+			"name": "month arithmetic clamps to a short month instead of overflowing",
+			"note": "Naive month addition turns 31 January into 3 March, and every end-of-month report drifts.",
+			"now": "2026-01-31T00:00:00",
+			"clampEndToNow": false,
+			"period": { "kind": "relative", "duration": { "count": 1, "unit": "month" }, "anchor": "current" },
+			"expect": { "start": "2026-01-31T00:00:00", "end": "2026-02-28T00:00:00" }
+		},
+		{
+			"name": "a day across spring-forward keeps wall-clock time",
+			"note": "US DST begins 2026-03-08. Adding a fixed 24h of milliseconds would land at 09:00, and the shift report would silently cover 23 hours.",
+			"now": "2026-03-07T08:00:00",
+			"clampEndToNow": false,
+			"period": { "kind": "relative", "duration": { "count": 1, "unit": "day" }, "anchor": "current" },
+			"expect": { "start": "2026-03-07T08:00:00", "end": "2026-03-08T08:00:00" }
+		},
+		{
+			"name": "a day across autumn fall-back keeps wall-clock time",
+			"note": "US DST ends 2026-11-01. This day is 25 hours long.",
+			"now": "2026-10-31T08:00:00",
+			"clampEndToNow": false,
+			"period": { "kind": "relative", "duration": { "count": 1, "unit": "day" }, "anchor": "current" },
+			"expect": { "start": "2026-10-31T08:00:00", "end": "2026-11-01T08:00:00" }
+		},
+		{
+			"name": "absolute periods pass through untouched",
+			"now": "2026-04-12T10:00:00",
+			"clampEndToNow": false,
+			"period": { "kind": "absolute", "start": "2026-04-01T00:00:00", "end": "2026-04-02T00:00:00" },
+			"expect": { "start": "2026-04-01T00:00:00", "end": "2026-04-02T00:00:00" }
+		}
+	]
+}

@@ -10,6 +10,10 @@ modl = "0.5.0"
 # NoSuchMethodError at render time, hours after a green build. Verified against the 8.3.8
 # container: poi, poi-ooxml and poi-ooxml-schemas are all 4.1.2.
 poi = "4.1.2"
+# The Historian module ships SEPARATELY from the platform (user-lib/modules/Historian-module.modl)
+# and carries its own version line. Pinned to what the 8.3.8 gateway ships; compileOnly, because
+# the module supplies these jars at runtime to anything that declares a dependency on it.
+historian = "1.3.8"
 
 [plugins]
 kotlin = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
@@ -29,6 +33,9 @@ ignition-perspective-common = { group = "com.inductiveautomation.ignitionsdk", n
 ignition-perspective-gateway = { group = "com.inductiveautomation.ignitionsdk", name = "perspective-gateway", version.ref = "ignition" }
 ignition-perspective-designer = { group = "com.inductiveautomation.ignitionsdk", name = "perspective-designer", version.ref = "ignition" }
 
+historian-common = { group = "com.inductiveautomation.historian", name = "historian-common", version.ref = "historian" }
+historian-gateway-api = { group = "com.inductiveautomation.historian", name = "historian-gateway-api", version.ref = "historian" }
+
 poi = { group = "org.apache.poi", name = "poi", version.ref = "poi" }
 poi-ooxml = { group = "org.apache.poi", name = "poi-ooxml", version.ref = "poi" }
 
@@ -43,3 +50,4 @@ perspectiveGateway = ["ignition-perspective-common", "ignition-perspective-gatew
 perspectiveDesigner = ["ignition-perspective-common", "ignition-perspective-designer"]
 kotest = ["kotest-junit", "kotest-assertions-core"]
 poi = ["poi", "poi-ooxml"]
+historian = ["historian-common", "historian-gateway-api"]
