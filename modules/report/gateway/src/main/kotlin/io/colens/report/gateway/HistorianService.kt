@@ -11,7 +11,9 @@ import com.inductiveautomation.historian.common.model.options.AggregatedQueryOpt
 import com.inductiveautomation.historian.common.model.options.RawQueryKey
 import com.inductiveautomation.historian.common.model.options.RawQueryOptions
 import com.inductiveautomation.historian.gateway.api.HistorianManager
+import com.inductiveautomation.historian.common.model.data.DataPointFactory
 import com.inductiveautomation.historian.gateway.api.query.QueryEngine
+import com.inductiveautomation.historian.gateway.api.storage.StorageEngine
 import com.inductiveautomation.historian.gateway.api.query.processor.AggregatedPointProcessor
 import com.inductiveautomation.historian.gateway.api.query.processor.ProcessingContext
 import com.inductiveautomation.historian.gateway.api.query.processor.RawPointProcessor
@@ -52,6 +54,65 @@ class HistorianService(private val context: GatewayContext) {
     fun historianNames(): List<String> = manager().historianNames.sorted()
 
     /**
+     * What each historian can actually aggregate.
+     *
+     * Aggregate support is PER PROVIDER, not per API — the module accepts all 17 of
+     * `system.historian`'s names, and a given historian may implement a handful. Asking for one it
+     * does not have fails the whole query with `Bad_Unsupported`, which the caller sees as a blank
+     * column among correct ones.
+     *
+     * Exposing this is what lets the add-in offer only the aggregates a historian will honour,
+     * turning a silent wrong-looking report into a choice the user never gets to make wrongly.
+     */
+    fun nativeAggregates(historian: String): List<String> =
+        runCatching { engine(historian).nativeAggregates.map { it.name() }.sorted() }
+            .getOrElse { emptyList() }
+
+    /**
+     * Mirrors `system.historian.storeDataPoints`.
+     *
+     * Writes points straight into a historian, bypassing tag logging entirely. That is what the
+     * scripting function does and it is the whole reason it exists — backfilling a gap, importing
+     * from another system, and (not least) putting known data in front of a report so its numbers
+     * can be checked against an answer somebody worked out by hand.
+     *
+     * Write-scoped: this is the only route in the module that changes anything.
+     */
+    fun storeDataPoints(historian: String, points: List<PointToStore>): StoreResult {
+        require(points.isNotEmpty()) { "At least one point is required." }
+
+        val atomic = points.map { point ->
+            DataPointFactory.createAtomicPoint<Any>(
+                point.value,
+                QualityCode.Good,
+                point.timestamp,
+                QualifiedPath.parse(point.path),
+            )
+        }
+
+        /*
+         * Blocking on the CompletionStage on purpose. The caller is an HTTP request that has to
+         * report whether the write landed — answering 200 off the back of an unresolved future
+         * would mean reporting success for points that are still in flight and may yet be
+         * rejected.
+         */
+        val result = try {
+            storage(historian).storeAtomic(atomic).toCompletableFuture()
+                .get(queryTimeout.toMillis(), TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            throw QueryFailed("Storing points failed: ${e.message}")
+        }
+
+        result.error().ifPresent { throw QueryFailed("Storing points failed: ${it.message}") }
+
+        return StoreResult(
+            stored = result.successfulData().size,
+            failed = result.failedData().size,
+            quality = result.qualityCode().name,
+        )
+    }
+
+    /**
      * Mirrors `system.historian.queryAggregatedPoints`.
      *
      * @param windowSize when set, aggregates are computed per window across the range — this is
@@ -82,43 +143,93 @@ class HistorianService(private val context: GatewayContext) {
          * issuing two queries. Column order follows path-major order so it matches the order the
          * caller listed, which is the order the spreadsheet block expects.
          */
+        /*
+         * One key per (path, aggregate) pair, in path-major order so the columns come back in the
+         * order the caller listed them.
+         */
         val keys = paths.flatMap { path ->
             val qualified = QualifiedPath.parse(path)
             modes.map { mode -> AggregatedQueryKey.of(qualified, mode, fill) }
         }
 
-        val builder = AggregatedQueryOptions.builder()
-            .addQueryKeys(keys)
-            .startTime(startTime)
-            .endTime(endTime)
-
-        if (includeBounds) builder.includeBounds() else builder.excludeBounds()
-        returnSize?.let { builder.returnSize(it) }
-
         /*
-         * A time window is MANDATORY, despite being optional on the builder: leaving it unset
-         * throws deep inside the historian with "Cannot invoke TimeWindow.size() because
-         * timeWindow is null", which reaches the caller as a 500 with no usable cause. Found by
-         * calling the endpoint, not by reading the API.
+         * ONE QUERY PER KEY, even though the API takes a list of them.
          *
-         * `system.historian.queryAggregatedPoints` has no windowSize parameter at all, so the
-         * default has to reproduce what it does: one aggregate value per path across the whole
-         * range. Hence the ladder — an explicit window wins, then returnSize divides the range
-         * into that many equal windows, and otherwise the window IS the range.
+         * The QuestDB-backed Core historian cannot answer an AGGREGATED query carrying more than a
+         * single key. Two aggregates on one path fail with
+         *
+         *   Cannot invoke "io.questdb.cairo.sql.Function.getTimestamp(...)" because the return
+         *   value of "io.questdb.cairo.sql.VirtualFunctionRecord.getFunction(int)" is null
+         *
+         * and two paths with one aggregate fail with a bare null. Every key works perfectly alone.
+         * Verified key by key against a live gateway; the raw query path has no such limit and
+         * happily takes many paths at once, so this is specific to aggregation.
+         *
+         * This is fatal for this product if unhandled, because a report column grid is ENTIRELY
+         * about asking for Minimum and Maximum and Average of several tags at once — the failure
+         * would land on precisely the query every real report makes.
+         *
+         * The cost is one round trip per column. A forty-column group is forty queries, which is
+         * acceptable for a report and is not negotiable while the provider behaves this way;
+         * running them concurrently is the obvious optimisation, deliberately not taken yet
+         * because correctness here was hard enough to establish.
+         *
+         * Unconditional rather than "only when there is more than one key", so the single-key case
+         * takes the same path as every other and cannot rot. Results merge into one shared
+         * assembler, which aligns them by timestamp.
          */
-        builder.withTimeWindow(
-            when {
-                windowSize != null -> TimeWindow.of(windowSize.first, windowSize.second)
-                returnSize != null && returnSize > 0 ->
-                    TimeWindow.ofMillis(maxOf(1, java.time.Duration.between(startTime, endTime).toMillis() / returnSize))
-                else -> TimeWindow.ofMillis(maxOf(1, java.time.Duration.between(startTime, endTime).toMillis()))
-            },
-        )
+        val assembler = RowAssembler(keys, columnNames, ::aggregatedHeading)
 
-        val collector = AggregatedCollector(keys, columnNames)
-        engine(historian).query(builder.build(), collector)
-        collector.await(queryTimeout)
-        return collector.result(startTime, endTime)
+        for (key in keys) {
+            val builder = AggregatedQueryOptions.builder()
+                .addQueryKey(key)
+                .startTime(startTime)
+                .endTime(endTime)
+
+            if (includeBounds) builder.includeBounds() else builder.excludeBounds()
+            returnSize?.let { builder.returnSize(it) }
+            builder.withTimeWindow(timeWindow(windowSize, returnSize, startTime, endTime))
+
+            val collector = AggregatedCollector(assembler)
+            engine(historian).query(builder.build(), collector)
+            collector.await(queryTimeout)
+        }
+
+        return QueryResult(
+            startTime = startTime,
+            endTime = endTime,
+            columns = assembler.columns(),
+            rows = assembler.rows(),
+            warnings = assembler.warnings(),
+        )
+    }
+
+    /** Path plus aggregate, because one tag legitimately appears several times in a group. */
+    private fun aggregatedHeading(key: AggregatedQueryKey): String =
+        "${HistorianPaths.displayName(key.source().toString())} (${key.aggregationType().name()})"
+
+    /**
+     * A time window is MANDATORY, despite being optional on the builder: leaving it unset throws
+     * inside the historian with "Cannot invoke TimeWindow.size() because timeWindow is null",
+     * which reaches the caller as a 500 with no usable cause.
+     *
+     * `system.historian.queryAggregatedPoints` has no windowSize parameter, so the default has to
+     * reproduce what it does. Note the range is HALVED when nothing is specified rather than used
+     * whole: a window equal to the full range is another shape QuestDB rejects, so "one value for
+     * the period" has to be expressed as a window that at least nominally divides it.
+     */
+    private fun timeWindow(
+        windowSize: Pair<Long, ChronoUnit>?,
+        returnSize: Int?,
+        startTime: Instant,
+        endTime: Instant,
+    ): TimeWindow {
+        val rangeMillis = java.time.Duration.between(startTime, endTime).toMillis()
+        return when {
+            windowSize != null -> TimeWindow.of(windowSize.first, windowSize.second)
+            returnSize != null && returnSize > 0 -> TimeWindow.ofMillis(maxOf(1, rangeMillis / returnSize))
+            else -> TimeWindow.ofMillis(maxOf(1, rangeMillis / 2))
+        }
     }
 
     /** Mirrors `system.historian.queryRawPoints`. */
@@ -143,10 +254,18 @@ class HistorianService(private val context: GatewayContext) {
         if (includeBounds) builder.includeBounds() else builder.excludeBounds()
         returnSize?.let { builder.returnSize(it) }
 
-        val collector = RawCollector(keys, columnNames)
+        val assembler = RowAssembler(keys, columnNames) { HistorianPaths.displayName(it.source().toString()) }
+        val collector = RawCollector(assembler)
         engine(historian).query(builder.build(), collector)
         collector.await(queryTimeout)
-        return collector.result(startTime, endTime)
+
+        return QueryResult(
+            startTime = startTime,
+            endTime = endTime,
+            columns = assembler.columns(),
+            rows = assembler.rows(),
+            warnings = assembler.warnings(),
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -163,13 +282,27 @@ class HistorianService(private val context: GatewayContext) {
      * start is still listed by name. Reporting both cases with one message produced the genuinely
      * useless "No historian named 'Internal'. Available: Internal.", so they are separated here.
      */
-    private fun engine(historian: String): QueryEngine {
+    private fun storage(historian: String): StorageEngine {
+        requireKnown(historian)
+        return manager().getStorageEngine(historian).orElseThrow {
+            HistorianUnavailable(
+                "Historian '$historian' is configured but cannot store data — it most likely failed " +
+                    "to start. Check the gateway logs for \"Error adding historian: $historian\".",
+            )
+        }
+    }
+
+    private fun requireKnown(historian: String) {
         val known = historianNames()
         if (historian !in known) {
             throw HistorianUnavailable(
                 "No historian named '$historian'. Available: ${known.joinToString(", ").ifEmpty { "none" }}.",
             )
         }
+    }
+
+    private fun engine(historian: String): QueryEngine {
+        requireKnown(historian)
         return manager().getQueryEngine(historian).orElseThrow {
             HistorianUnavailable(
                 "Historian '$historian' is configured but not queryable — it most likely failed to " +
@@ -200,6 +333,10 @@ class HistorianService(private val context: GatewayContext) {
 
     // -----------------------------------------------------------------------
 
+    data class PointToStore(val path: String, val timestamp: Instant, val value: Any)
+
+    data class StoreResult(val stored: Int, val failed: Int, val quality: String)
+
     data class QueryResult(
         val startTime: Instant,
         val endTime: Instant,
@@ -211,18 +348,18 @@ class HistorianService(private val context: GatewayContext) {
     )
 
     /**
-     * Adapts the historian's streaming callbacks onto [RowAssembler].
+     * Adapts the historian's streaming callbacks onto a SHARED [RowAssembler].
      *
-     * Deliberately thin. Everything with logic in it — placement, ordering, gaps, de-duplicated
-     * warnings — lives in RowAssembler in `common`, where it is unit-tested with no Ignition and
-     * no Historian module present. A live historian cannot be stood up in CI, so anything that
-     * stays here is effectively untested.
+     * Shared, not owned, because an aggregated query fans out into one call per aggregate and all
+     * of them have to land in the same grid — the assembler aligns them by timestamp, so column 2
+     * from the Minimum pass lines up with column 1 from the Average pass on the same row.
+     *
+     * Deliberately thin. Everything with logic in it lives in RowAssembler in `common`, where it
+     * is unit-tested with no Ignition and no Historian module present. A live historian cannot be
+     * stood up in CI, so anything that stays here is effectively untested.
      */
-    private abstract class Collector<K>(keys: List<K>, columnNames: List<String>) {
+    private abstract class Collector<K>(protected val assembler: RowAssembler<K>) {
         private val latch = CountDownLatch(1)
-        protected val assembler = RowAssembler(keys, columnNames, ::heading)
-
-        protected abstract fun heading(key: K): String
 
         fun fail(message: String) {
             assembler.recordFailure(message)
@@ -238,24 +375,11 @@ class HistorianService(private val context: GatewayContext) {
                 throw QueryFailed("The historian query did not complete within ${timeout.toMinutes()} minutes.")
             }
         }
-
-        fun result(start: Instant, end: Instant) = QueryResult(
-            startTime = start,
-            endTime = end,
-            columns = assembler.columns(),
-            rows = assembler.rows(),
-            warnings = assembler.warnings(),
-        )
     }
 
     private class AggregatedCollector(
-        keys: List<AggregatedQueryKey>,
-        columnNames: List<String>,
-    ) : Collector<AggregatedQueryKey>(keys, columnNames), AggregatedPointProcessor {
-
-        /** Path plus aggregate, because one tag legitimately appears several times in a group. */
-        override fun heading(key: AggregatedQueryKey): String =
-            "${HistorianPaths.displayName(key.source().toString())} (${key.aggregationType().name()})"
+        assembler: RowAssembler<AggregatedQueryKey>,
+    ) : Collector<AggregatedQueryKey>(assembler), AggregatedPointProcessor {
 
         override fun onInitialize(ctx: ProcessingContext<AggregatedQueryKey, DataPointType>): Boolean = true
 
@@ -275,12 +399,8 @@ class HistorianService(private val context: GatewayContext) {
     }
 
     private class RawCollector(
-        keys: List<RawQueryKey>,
-        columnNames: List<String>,
-    ) : Collector<RawQueryKey>(keys, columnNames), RawPointProcessor {
-
-        override fun heading(key: RawQueryKey): String =
-            HistorianPaths.displayName(key.source().toString())
+        assembler: RowAssembler<RawQueryKey>,
+    ) : Collector<RawQueryKey>(assembler), RawPointProcessor {
 
         override fun onInitialize(ctx: ProcessingContext<RawQueryKey, DataPointType>): Boolean = true
 

@@ -23,7 +23,7 @@ import java.time.temporal.ChronoUnit
  * Route table for `/data/report/`.
  *
  * The query routes mirror `system.historian` deliberately, down to parameter names: an engineer
- * who has written `system.historian.queryAggregatedPoints(...)` can move paths, aggregates,
+ * who has written `system.historianService.queryAggregatedPoints(...)` can move paths, aggregates,
  * columnNames and returnSize across unchanged. The report-shaped endpoints that come later
  * compose on top of these rather than replacing them.
  *
@@ -45,7 +45,7 @@ class ReportRoutes(
 
     private val logger = LoggerFactory.getLogger(javaClass)
     private val gson = Gson()
-    private val historian = HistorianService(context)
+    private val historianService = HistorianService(context)
 
     fun mount(routes: RouteGroup) {
         if (DevMode.enabled()) {
@@ -66,13 +66,22 @@ class ReportRoutes(
             .mount()
 
         json(routes, "/api/historians", HttpMethod.GET, read()) { _ ->
-            mapOf("historians" to historian.historianNames())
+            mapOf(
+                "historians" to historianService.historianNames().map { name ->
+                    mapOf(
+                        "name" to name,
+                        // What THIS historian can aggregate, which is a subset of what the API
+                        // accepts. Asking for one it lacks fails the whole query.
+                        "nativeAggregates" to historianService.nativeAggregates(name),
+                    )
+                },
+            )
         }
 
         /** Mirrors `system.historian.queryAggregatedPoints`. */
         json(routes, "/api/queryAggregatedPoints", HttpMethod.POST, read()) { body ->
             val request = body ?: throw BadRequest("A JSON body is required.")
-            historian.queryAggregatedPoints(
+            historianService.queryAggregatedPoints(
                 historian = request.string("historian") ?: defaultHistorian(),
                 paths = request.stringList("paths"),
                 startTime = request.instant("startTime"),
@@ -86,10 +95,41 @@ class ReportRoutes(
             ).asMap()
         }
 
+        /**
+         * Mirrors `system.historian.storeDataPoints`.
+         *
+         * WRITE-scoped — the only route in this module that changes anything. A read token must
+         * not be able to fabricate history: a report whose numbers can be edited by whoever can
+         * read it is worth nothing to anybody auditing it.
+         */
+        json(routes, "/api/storeDataPoints", HttpMethod.POST, write()) { body ->
+            val request = body ?: throw BadRequest("A JSON body is required.")
+            val points = request.getAsJsonArray("points")
+                ?: throw BadRequest("'points' is required and must be an array.")
+
+            historianService.storeDataPoints(
+                historian = request.string("historian") ?: defaultHistorian(),
+                points = points.mapIndexed { index, element ->
+                    val point = element.asJsonObject
+                    HistorianService.PointToStore(
+                        path = point.string("path") ?: throw BadRequest("points[$index].path is required."),
+                        timestamp = point.instant("timestamp"),
+                        value = point.get("value")?.takeIf { !it.isJsonNull }?.asJsonPrimitive?.let {
+                            when {
+                                it.isNumber -> it.asDouble
+                                it.isBoolean -> it.asBoolean
+                                else -> it.asString
+                            }
+                        } ?: throw BadRequest("points[$index].value is required."),
+                    )
+                },
+            ).let { mapOf("stored" to it.stored, "failed" to it.failed, "quality" to it.quality) }
+        }
+
         /** Mirrors `system.historian.queryRawPoints`. */
         json(routes, "/api/queryRawPoints", HttpMethod.POST, read()) { body ->
             val request = body ?: throw BadRequest("A JSON body is required.")
-            historian.queryRawPoints(
+            historianService.queryRawPoints(
                 historian = request.string("historian") ?: defaultHistorian(),
                 paths = request.stringList("paths"),
                 startTime = request.instant("startTime"),
@@ -104,6 +144,13 @@ class ReportRoutes(
     // -----------------------------------------------------------------------
 
     private class BadRequest(message: String) : Exception(message)
+
+    private fun write(): AccessControlStrategy =
+        if (DevMode.enabled()) {
+            AccessControlStrategy.OPEN_ROUTE
+        } else {
+            AccessControlStrategy.and(requireValidToken(), ApiTokenManager.TOKEN_WRITE)
+        }
 
     private fun read(): AccessControlStrategy =
         if (DevMode.enabled()) {
@@ -181,7 +228,7 @@ class ReportRoutes(
     }
 
     private fun defaultHistorian(): String =
-        historian.historianNames().firstOrNull()
+        historianService.historianNames().firstOrNull()
             ?: throw HistorianService.HistorianUnavailable("No historians are configured on this gateway.")
 
     private fun health(): Map<String, Any?> = mapOf(
@@ -194,7 +241,7 @@ class ReportRoutes(
         // hours after a green build, inside a scheduled job nobody is watching. Reporting the
         // version actually loaded turns that into a five-second check.
         "poiVersion" to runCatching { PoiVersion.getVersion() }.getOrElse { "unavailable" },
-        "historians" to runCatching { historian.historianNames() }.getOrElse { emptyList() },
+        "historians" to runCatching { historianService.historianNames() }.getOrElse { emptyList() },
         "aggregates" to Aggregates.NAMES,
         "fillModes" to Aggregates.FILL_MODES,
         "addinUrl" to "/res/${Constants.SHORT_MODULE_ID}/addin/taskpane.html",

@@ -31,20 +31,23 @@ A fresh gateway has **no historian**, so `/data/report/api/historians` returns `
 query fails. There is no way to create one from the command line, so write the config resource
 directly — 8.3 keeps gateway config as a file tree under `data/config/resources`.
 
+**Use `CoreHistorian`, not `InternalHistorian`.** They are different storage engines and only one
+is useful here: `InternalHistorian` is SQLite-backed and its query engine has executors for raw
+points, metadata, browse and annotations — and *none* for aggregation, so it reports zero native
+aggregates and fails every aggregated query. `CoreHistorian` is the QuestDB one.
+
 ```bash
 docker exec report-dev-gw sh -c '
-D=/usr/local/bin/ignition/data/config/resources/core/com.inductiveautomation.historian/historian-provider/Internal
+D=/usr/local/bin/ignition/data/config/resources/core/com.inductiveautomation.historian/historian-provider/Plant
 mkdir -p "$D"
 cat > "$D/config.json" <<JSON
 {
-  "profile": { "type": "InternalHistorian" },
+  "profile": { "type": "CoreHistorian" },
   "settings": {
-    "timeLimit":  { "enabled": false, "size": 1, "sizeUnits": "YEAR" },
-    "pointLimit": { "enabled": false, "size": 1000000 },
-    "remoteSync": { "enabled": false, "serverName": "", "historianName": "",
-                    "enableSchedule": false, "schedule": "",
-                    "syncFrequencySize": 1, "syncFrequencyUnits": "MINUTE",
-                    "maxBatchSize": 1000 }
+    "partitionInterval": "DAY",
+    "dataDeduplication": false,
+    "maintenanceSettings": { "strategy": "NONE", "directory": "",
+                             "maintenanceAgeUnits": "YEAR", "maintenanceAge": 1 }
   }
 }
 JSON
@@ -72,3 +75,36 @@ Three things here cost an hour to work out, so they are worth stating plainly:
 A historian with no data answers raw queries with an empty result, and aggregated queries with
 `Bad_Unsupported` for tags it has never seen. Both are correct — and both are reported as
 `warnings` rather than thrown, so one unknown tag cannot blank a whole report.
+
+## Seeding data
+
+Tag logging needs a tag provider, tag definitions and a tag group, none of which can be created
+from the shell. `storeDataPoints` writes straight into a historian instead, which is what the
+scripting function is for:
+
+```bash
+curl -s -X POST http://localhost:18288/data/report/api/storeDataPoints \
+  -H 'Content-Type: application/json' -d '{
+    "historian": "Plant",
+    "points": [
+      {"path": "histprov:Plant:/sys:report-dev-gw:/prov:default:/tag:Line1/Flow",
+       "timestamp": 1789735800000, "value": 10}
+    ]
+  }'
+```
+
+Then query it back with `queryRawPoints` or `queryAggregatedPoints`. Putting *known* values in is
+the point — a report is only verified when its numbers can be checked against an answer worked out
+by hand.
+
+## Two provider limits worth knowing
+
+`GET /api/historians` reports each historian's `nativeAggregates`, and they come back in QuestDB's
+own spelling (`SIMPLE_AVERAGE`, `MAXIMUM`, `STANDARD_DEVIATION`), not `system.historian`'s. The set
+is per provider: asking for an aggregate a historian lacks fails the *whole* query, so the add-in
+should offer only what a given historian reports.
+
+The Core historian cannot answer an aggregated query carrying **more than one key** — two
+aggregates on one path, or one aggregate across two paths, both fail while either works alone.
+`HistorianService` fans out to one query per key because of it. The raw query path has no such
+limit and takes many paths happily.
