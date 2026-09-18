@@ -108,3 +108,51 @@ The Core historian cannot answer an aggregated query carrying **more than one ke
 aggregates on one path, or one aggregate across two paths, both fail while either works alone.
 `HistorianService` fans out to one query per key because of it. The raw query path has no such
 limit and takes many paths happily.
+
+## Auth, and the permission asymmetry
+
+`devMode` is off in this compose file, so every `/data/report/api` route needs an API key. Create
+one at **Platform → Security → API Keys → Create API Key**, type *Basic Token*. Two things to get
+right:
+
+- **Untick "Require secure connections for API Keys."** It is ticked by default and makes every
+  key 403 over plain `http://`, which is how this gateway is reached locally.
+- **Give the key a security level that satisfies `writePermissions`.** Read and write are NOT
+  symmetric, and the gateway's own `security-properties` shows why:
+
+  ```json
+  "accessPermissions": { "securityLevels": [], "type": "AllOf" }
+  "writePermissions":  { "securityLevels": [Authenticated/Roles/Administrator], "type": "AnyOf" }
+  ```
+
+  `accessPermissions` ships as an **empty AllOf**, which is *vacuously true* — satisfied by a
+  caller presenting no token at all. That is the trap `ReportRoutes` guards against by AND-ing
+  `requireValidToken()` with every `TOKEN_*` strategy, and it is measured here rather than assumed:
+  `TOKEN_ACCESS` on its own protects nothing on a default gateway.
+
+  `writePermissions` is the opposite — it requires Administrator out of the box, so a freshly
+  created key reads fine and 403s on `storeDataPoints` until its security level is raised.
+
+Verified against this container:
+
+```
+no token     -> 401
+wrong token  -> 401
+valid token  -> 200   (read)
+valid token  -> 403   (write, until the key's security level satisfies writePermissions)
+```
+
+## Testing the add-in in Excel
+
+Office will not load an add-in over plain HTTP, and this gateway exposes only `http://localhost:18288`.
+So the add-in cannot be sideloaded against this container as it stands — it needs a browser-reachable
+**HTTPS** origin, by one of:
+
+- an HTTPS tunnel (`cloudflared tunnel --url http://localhost:18288`, or
+  `ssh -R 80:localhost:18288 nokey@localhost.run`), with `-Dreport.publicUrl` set to the public
+  address so the generated manifest points at it rather than at localhost;
+- a local reverse proxy holding a certificate the browser trusts (mkcert + caddy);
+- Ignition's own HTTPS port, which is **not** enabled or exposed in this compose file.
+
+`/data/report/manifest.xml` deliberately refuses to emit over `http://` and says so, rather than
+producing a manifest that Office would reject silently.

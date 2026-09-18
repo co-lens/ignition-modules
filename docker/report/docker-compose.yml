@@ -26,13 +26,25 @@ services:
       # Do NOT set GATEWAY_MODULES_ENABLED. Commissioning treats it as the COMPLETE list of
       # modules to enable, so naming only ours would disable every stock module — the Historian
       # included, which is the one thing this gateway exists to talk to.
+    # -Dreport.devMode=true is deliberately ABSENT. It drops the API-token requirement from every
+    # data route — read AND write, including storeDataPoints, which can fabricate history. That is
+    # acceptable for a container bound to localhost and not acceptable the moment the gateway is
+    # reachable from anywhere else, which is exactly what testing the Excel add-in requires: Office
+    # will not load an add-in from localhost, so the gateway has to be tunnelled to a public HTTPS
+    # address.
+    #
+    # Leaving it off is also the only way the real auth path gets exercised at all — the
+    # X-Ignition-API-Token header and the and(requireValidToken(), TOKEN_*) strategy. Add it back
+    # only for local curl work with no tunnel running.
+    #
+    # It cannot be commented out in place: `command: >` below is a folded scalar, so a '#' line
+    # inside it is handed to the JVM verbatim instead of being ignored.
     command: >
       -n report-dev-gw
       -d
       --
       -Dignition.allowunsignedmodules=true
       -Dia.developer.moduleupload=true
-      -Dreport.devMode=true
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8088/StatusPing"]
       interval: 5s
