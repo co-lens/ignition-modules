@@ -8,8 +8,14 @@ import com.inductiveautomation.ignition.gateway.dataroutes.HttpMethod
 import com.inductiveautomation.ignition.gateway.dataroutes.RequestContext
 import com.inductiveautomation.ignition.gateway.dataroutes.RouteGroup
 import com.inductiveautomation.ignition.gateway.model.GatewayContext
+import com.inductiveautomation.ignition.gateway.model.GatewaySystemProperties
 import com.inductiveautomation.ignition.gateway.auth.apitoken.ApiTokenManager
 import io.colens.report.common.Aggregates
+import io.colens.report.common.DataGroup
+import io.colens.report.common.DataGroupCodec
+import io.colens.report.common.DataGroupPlan
+import io.colens.report.common.HistorianPaths
+import io.colens.report.common.PeriodResolver
 import io.colens.report.common.Constants
 import io.colens.report.common.DevMode
 import jakarta.servlet.http.HttpServletResponse
@@ -17,6 +23,7 @@ import org.apache.poi.Version as PoiVersion
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
 /**
@@ -72,7 +79,8 @@ class ReportRoutes(
                         "name" to name,
                         // What THIS historian can aggregate, which is a subset of what the API
                         // accepts. Asking for one it lacks fails the whole query.
-                        "nativeAggregates" to historianService.nativeAggregates(name),
+                        "nativeAggregates" to historianService.nativeAggregates(name).supported,
+                        "providerOnlyAggregates" to historianService.nativeAggregates(name).providerOnly,
                     )
                 },
             )
@@ -102,6 +110,39 @@ class ReportRoutes(
          * not be able to fabricate history: a report whose numbers can be edited by whoever can
          * read it is worth nothing to anybody auditing it.
          */
+        /**
+         * The report-shaped query: a DataGroup in, a block of cells out.
+         *
+         * Everything else here is the `system.historian` mirror. This is the layer that makes it a
+         * REPORT tool — it takes a symbolic period ("previous day, hourly"), resolves it HERE, and
+         * composes the historian calls. The add-in never resolves a period itself, so an
+         * interactive refresh and a 06:00 scheduled render cannot disagree about which hours
+         * "previous day" covers.
+         */
+        json(routes, "/api/query", HttpMethod.POST, read()) { body ->
+            queryGroup(DataGroupCodec.read(body ?: throw BadRequest("A JSON body is required.")))
+        }
+
+        /**
+         * Resolves a period without running a query.
+         *
+         * The taskpane's period picker uses it to show what a setting actually covers. Same
+         * resolver the query path uses, so a preview cannot promise one range and the report
+         * deliver another.
+         */
+        json(routes, "/api/resolvePeriod", HttpMethod.POST, read()) { body ->
+            val request = body ?: throw BadRequest("A JSON body is required.")
+            val period = DataGroupCodec.readPeriod(
+                request.getAsJsonObject("period") ?: throw BadRequest("'period' is required."),
+            )
+            val resolved = PeriodResolver.resolve(period, ZonedDateTime.now(ZoneId.systemDefault()))
+            mapOf(
+                "start" to resolved.start.toInstant().toString(),
+                "end" to resolved.end.toInstant().toString(),
+                "zone" to ZoneId.systemDefault().id,
+            )
+        }
+
         json(routes, "/api/storeDataPoints", HttpMethod.POST, write()) { body ->
             val request = body ?: throw BadRequest("A JSON body is required.")
             val points = request.getAsJsonArray("points")
@@ -142,6 +183,88 @@ class ReportRoutes(
     }
 
     // -----------------------------------------------------------------------
+
+    /**
+     * Runs a planned group.
+     *
+     * The plan decides everything interesting — which period, how lead time shifts the query
+     * start, what window the interval becomes — in `common`, where it is unit-tested without a
+     * gateway. This is the translation into historian calls and nothing more.
+     */
+    private fun queryGroup(group: DataGroup): Map<String, Any?> {
+        val historian = group.historian ?: defaultHistorian()
+
+        val plan = DataGroupPlan.plan(
+            group = group,
+            now = ZonedDateTime.now(ZoneId.systemDefault()),
+            defaults = HistorianPaths.Defaults(
+                historian = historian,
+                // The gateway's own name, which is the "/sys:" segment of every historian path.
+                // Not a constant: a path naming the wrong gateway resolves to nothing, and the
+                // query then returns an empty column rather than an error.
+                gateway = gatewayName(),
+                tagProvider = group.tagProvider ?: "default",
+            ),
+        )
+
+        val result = if (plan.raw) {
+            historianService.queryRawPoints(
+                historian = historian,
+                paths = plan.paths,
+                startTime = plan.queryStart.toInstant(),
+                endTime = plan.periodEnd.toInstant(),
+                columnNames = plan.columnNames,
+                includeBounds = plan.includeBounds,
+            )
+        } else {
+            // queryColumns, NOT queryAggregatedPoints: a plan's paths and aggregates are
+            // PARALLEL, one pair per column, where queryAggregatedPoints crosses them. Crossing a
+            // four-column group gives sixteen columns and no error.
+            historianService.queryColumns(
+                historian = historian,
+                columns = plan.paths.zip(historianService.resolveAggregates(plan.aggregates))
+                    .map { (path, aggregate) -> HistorianService.ColumnSpec(path, aggregate) },
+                startTime = plan.queryStart.toInstant(),
+                endTime = plan.periodEnd.toInstant(),
+                columnNames = plan.columnNames,
+                fillMode = plan.fillMode,
+                windowSize = plan.windowSize,
+                returnSize = plan.returnSize,
+                includeBounds = plan.includeBounds,
+            )
+        }
+
+        /*
+         * Lead time is extra history fetched to seed time-weighted calculations, NOT part of the
+         * report. Trimmed here rather than left in, because rows dated before the period start
+         * land in the user's sheet above their own header and look like a bug in the report.
+         */
+        val periodStartMillis = plan.periodStart.toInstant().toEpochMilli()
+        val rows = result.rows.filter { row -> (row.firstOrNull() as? Long ?: 0L) >= periodStartMillis }
+
+        return mapOf(
+            "groupId" to group.id,
+            "resolved" to mapOf(
+                "start" to plan.periodStart.toInstant().toString(),
+                "end" to plan.periodEnd.toInstant().toString(),
+                "zone" to plan.periodStart.zone.id,
+            ),
+            "columns" to result.columns,
+            "rows" to rows,
+            "warnings" to result.warnings,
+        )
+    }
+
+    /**
+     * The gateway's own name, which is the `/sys:` segment of every historian path.
+     *
+     * Not hard-coded and not guessed: a path naming the wrong gateway resolves to nothing, and the
+     * query then comes back as an empty column rather than an error — a report full of blanks with
+     * nothing to explain them. The fallback is only for a gateway that has somehow not been named,
+     * where an empty segment is at least as likely to work as an invented one.
+     */
+    private fun gatewayName(): String =
+        context.systemPropertiesManager.getPropertyValue(GatewaySystemProperties.SystemName) ?: ""
 
     private class BadRequest(message: String) : Exception(message)
 
@@ -197,6 +320,12 @@ class ReportRoutes(
             error(res, HttpServletResponse.SC_BAD_REQUEST, "BAD_REQUEST", e.message)
         } catch (e: IllegalArgumentException) {
             error(res, HttpServletResponse.SC_BAD_REQUEST, "BAD_REQUEST", e.message)
+        } catch (e: DataGroupCodec.MalformedGroup) {
+            error(res, HttpServletResponse.SC_BAD_REQUEST, "MALFORMED_GROUP", e.message)
+        } catch (e: DataGroupPlan.InvalidGroup) {
+            error(res, HttpServletResponse.SC_BAD_REQUEST, "INVALID_GROUP", e.message)
+        } catch (e: PeriodResolver.UnresolvablePeriod) {
+            error(res, HttpServletResponse.SC_BAD_REQUEST, "UNRESOLVABLE_PERIOD", e.message)
         } catch (e: HistorianService.QueryFailed) {
             error(res, HttpServletResponse.SC_BAD_REQUEST, "QUERY_FAILED", e.message)
         } catch (e: HistorianService.HistorianUnavailable) {

@@ -64,9 +64,34 @@ class HistorianService(private val context: GatewayContext) {
      * Exposing this is what lets the add-in offer only the aggregates a historian will honour,
      * turning a silent wrong-looking report into a choice the user never gets to make wrongly.
      */
-    fun nativeAggregates(historian: String): List<String> =
-        runCatching { engine(historian).nativeAggregates.map { it.name() }.sorted() }
-            .getOrElse { emptyList() }
+    fun nativeAggregates(historian: String): NativeAggregates {
+        val types = runCatching { engine(historian).nativeAggregates }.getOrElse { return NativeAggregates() }
+
+        /*
+         * A provider names its aggregates in its OWN vocabulary — the QuestDB historian reports
+         * SIMPLE_AVERAGE, MAXIMUM, STANDARD_DEVIATION — while this API accepts the
+         * system.historian spellings (SimpleAverage, Maximum, StdDev). Handing the raw list to a
+         * caller would be actively misleading: every name in it is one the API rejects.
+         *
+         * They share an identifier space with AggregationMode, so the translation is by id rather
+         * than by string munging, which would have to guess at StdDev vs STANDARD_DEVIATION.
+         *
+         * Names that map to nothing are still reported, separately: a provider may offer
+         * aggregates with no legacy equivalent at all (QuestDB has KSUM, FIRST_NOT_NULL,
+         * APPROX_COUNT_DISTINCT). They are unusable through this API today, and saying so is
+         * better than hiding capability the gateway genuinely has.
+         */
+        val byId = AggregationMode.values().associateBy { it.id }
+        val supported = mutableListOf<String>()
+        val providerOnly = mutableListOf<String>()
+
+        for (type in types) {
+            val mode = byId[type.identifier()]
+            if (mode != null) supported += mode.name else providerOnly += type.name()
+        }
+
+        return NativeAggregates(supported.sorted(), providerOnly.sorted())
+    }
 
     /**
      * Mirrors `system.historian.storeDataPoints`.
@@ -134,22 +159,57 @@ class HistorianService(private val context: GatewayContext) {
     ): QueryResult {
         require(paths.isNotEmpty()) { "At least one path is required." }
 
-        val fill = fillMode?.let { resolveFillMode(it) } ?: FillMode.PREV
-        val modes = resolveAggregates(aggregates)
+        /*
+         * CROSS PRODUCT: every aggregate applied to every path, path-major, which is what
+         * `system.historian.queryAggregatedPoints` means by "a column per requested calculation".
+         *
+         * A REPORT does not want this. Its column grid pairs one path with one calculation per
+         * column, so it goes through [queryColumns] instead. Conflating the two turned a
+         * four-column group into sixteen columns, with the intended ones empty and the data off to
+         * the right — and no error anywhere, which is the whole reason the two shapes are now
+         * separate functions rather than one clever one.
+         */
+        return queryColumns(
+            historian = historian,
+            columns = resolveAggregates(aggregates).let { modes ->
+                paths.flatMap { path -> modes.map { mode -> ColumnSpec(path, mode) } }
+            },
+            startTime = startTime,
+            endTime = endTime,
+            columnNames = columnNames,
+            fillMode = fillMode,
+            windowSize = windowSize,
+            returnSize = returnSize,
+            includeBounds = includeBounds,
+        )
+    }
 
-        /*
-         * One key per (path, aggregate) pair, which is what makes per-column calculations
-         * first-class here: the same tag can appear twice with Minimum and Maximum without
-         * issuing two queries. Column order follows path-major order so it matches the order the
-         * caller listed, which is the order the spreadsheet block expects.
-         */
-        /*
-         * One key per (path, aggregate) pair, in path-major order so the columns come back in the
-         * order the caller listed them.
-         */
-        val keys = paths.flatMap { path ->
-            val qualified = QualifiedPath.parse(path)
-            modes.map { mode -> AggregatedQueryKey.of(qualified, mode, fill) }
+    /** One (path, aggregate) pair, producing one output column. */
+    data class ColumnSpec(val path: String, val aggregate: AggregationType)
+
+    /**
+     * Aggregated query over an explicit list of columns.
+     *
+     * The shape a report actually wants: every column names its own path AND its own calculation,
+     * so one tag can appear three times as Minimum, Maximum and Average while a different tag in
+     * the same group carries something else entirely.
+     */
+    fun queryColumns(
+        historian: String,
+        columns: List<ColumnSpec>,
+        startTime: Instant,
+        endTime: Instant,
+        columnNames: List<String> = emptyList(),
+        fillMode: String? = null,
+        windowSize: Pair<Long, ChronoUnit>? = null,
+        returnSize: Int? = null,
+        includeBounds: Boolean = false,
+    ): QueryResult {
+        require(columns.isNotEmpty()) { "At least one column is required." }
+
+        val fill = fillMode?.let { resolveFillMode(it) } ?: FillMode.PREV
+        val keys = columns.map { column ->
+            AggregatedQueryKey.of(QualifiedPath.parse(column.path), column.aggregate, fill)
         }
 
         /*
@@ -316,7 +376,7 @@ class HistorianService(private val context: GatewayContext) {
      * `LegacyAggregateAdapter`. Validating through [Aggregates] first means an unknown name is a
      * readable error listing the valid ones, rather than an enum exception from deep inside a query.
      */
-    private fun resolveAggregates(names: List<String>): List<AggregationType> {
+    fun resolveAggregates(names: List<String>): List<AggregationType> {
         val requested = names.ifEmpty { listOf("Average") }
         return requested.map { raw ->
             val canonical = Aggregates.canonical(raw)
@@ -332,6 +392,15 @@ class HistorianService(private val context: GatewayContext) {
     }
 
     // -----------------------------------------------------------------------
+
+    /**
+     * `supported` uses this API's own vocabulary and is directly usable as an `aggregates` value.
+     * `providerOnly` is what the historian offers under names with no system.historian equivalent.
+     */
+    data class NativeAggregates(
+        val supported: List<String> = emptyList(),
+        val providerOnly: List<String> = emptyList(),
+    )
 
     data class PointToStore(val path: String, val timestamp: Instant, val value: Any)
 
