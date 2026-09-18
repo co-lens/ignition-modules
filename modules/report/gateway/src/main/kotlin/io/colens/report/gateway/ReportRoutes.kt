@@ -69,7 +69,10 @@ class ReportRoutes(
             .method(HttpMethod.GET)
             .type(RouteGroup.TYPE_JSON)
             .accessControl(AccessControlStrategy.OPEN_ROUTE)
-            .handler { _, _ -> gson.toJson(health()) }
+            .handler { ctx, res ->
+                cors(ctx, res)
+                gson.toJson(health())
+            }
             .mount()
 
         /**
@@ -385,8 +388,61 @@ class ReportRoutes(
             .method(method)
             .type(RouteGroup.TYPE_JSON)
             .accessControl(access)
-            .handler { ctx, res -> gson.toJson(dispatch(ctx, res, handler)) }
+            .handler { ctx, res ->
+                cors(ctx, res)
+                gson.toJson(dispatch(ctx, res, handler))
+            }
             .mount()
+
+        /*
+         * A CORS preflight for the same path.
+         *
+         * Necessary even though the add-in is served BY this gateway, which ought to make every
+         * call same-origin. Office hosts a task pane in a SANDBOXED iframe, so the document's
+         * origin is opaque rather than this gateway's — every request from it is cross-origin, and
+         * the browser blocks it before it reaches the network. The symptom is brutal: the fetch
+         * rejects, the add-in reports "could not reach the gateway", and NOTHING arrives in the
+         * gateway's logs to contradict it.
+         *
+         * Open, and deliberately so: the preflight carries no data and answering it reveals
+         * nothing. The actual request still has to present a valid API token.
+         */
+        routes.newRoute(path)
+            .method(HttpMethod.OPTIONS)
+            .type(RouteGroup.TYPE_JSON)
+            .accessControl(AccessControlStrategy.OPEN_ROUTE)
+            .handler { ctx, res ->
+                cors(ctx, res)
+                res.status = HttpServletResponse.SC_NO_CONTENT
+                ""
+            }
+            .mount()
+    }
+
+    /**
+     * CORS headers for a task pane whose origin is opaque.
+     *
+     * The Origin is echoed rather than answered with `*` so the policy stays as narrow as the
+     * browser will allow, and because `*` is rejected outright once credentials are involved —
+     * which they will be the moment this moves to cookie or session auth.
+     *
+     * `Access-Control-Allow-Private-Network` is the second half of the problem. Chrome's Private
+     * Network Access rules treat a request from a public or opaque-origin document to a private
+     * address — which localhost is — as needing explicit permission, and refuse it otherwise. An
+     * add-in talking to an on-premises gateway is exactly that shape, so this is not a
+     * localhost-only development concern.
+     */
+    private fun cors(ctx: RequestContext, res: HttpServletResponse) {
+        val origin = ctx.request.getHeader("Origin") ?: "*"
+        res.setHeader("Access-Control-Allow-Origin", origin)
+        res.setHeader("Vary", "Origin")
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        res.setHeader(
+            "Access-Control-Allow-Headers",
+            "Content-Type, X-Ignition-API-Token, Authorization",
+        )
+        res.setHeader("Access-Control-Allow-Private-Network", "true")
+        res.setHeader("Access-Control-Max-Age", "600")
     }
 
     private fun dispatch(ctx: RequestContext, res: HttpServletResponse, handler: (JsonObject?) -> Any): Any =
