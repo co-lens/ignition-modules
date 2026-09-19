@@ -165,6 +165,133 @@
 			"expect": { "start": "2026-10-31T08:00:00", "end": "2026-11-01T08:00:00" }
 		},
 		{
+			"name": "aligned current day is day-to-date",
+			"note": "The period real reports mean by 'today'. Unaligned this is degenerate: start=now, and the clamp then pulls end back to now, giving an empty range.",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": true,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "current",
+				"align": true
+			},
+			"expect": { "start": "2026-04-12T00:00:00", "end": "2026-04-12T10:30:00" }
+		},
+		{
+			"name": "aligned previous day is yesterday, midnight to midnight",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "day" },
+				"anchor": "previous",
+				"align": true
+			},
+			"expect": { "start": "2026-04-11T00:00:00", "end": "2026-04-12T00:00:00" }
+		},
+		{
+			"name": "aligned current month is month-to-date",
+			"note": "Unaligned, XLReporter's own semantics make this a rolling month: 12 April to 12 May. Both are useful; only one is what 'this month' means.",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": true,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "month" },
+				"anchor": "current",
+				"align": true
+			},
+			"expect": { "start": "2026-04-01T00:00:00", "end": "2026-04-12T10:30:00" }
+		},
+		{
+			"name": "aligned previous month is the whole previous calendar month",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "month" },
+				"anchor": "previous",
+				"align": true
+			},
+			"expect": { "start": "2026-03-01T00:00:00", "end": "2026-04-01T00:00:00" }
+		},
+		{
+			"name": "aligned week starts on Monday",
+			"note": "ISO 8601. A real choice rather than an obvious one, so it is pinned here rather than left to the runtime. 2026-04-12 is a Sunday, whose ISO week began Monday the 6th.",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "week" },
+				"anchor": "current",
+				"align": true
+			},
+			"expect": { "start": "2026-04-06T00:00:00", "end": "2026-04-13T00:00:00" }
+		},
+		{
+			"name": "aligned quarter snaps to the first month of the quarter",
+			"now": "2026-05-20T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "quarter" },
+				"anchor": "current",
+				"align": true
+			},
+			"expect": { "start": "2026-04-01T00:00:00", "end": "2026-07-01T00:00:00" }
+		},
+		{
+			"name": "aligned year snaps to 1 January",
+			"now": "2026-05-20T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "year" },
+				"anchor": "current",
+				"align": true
+			},
+			"expect": { "start": "2026-01-01T00:00:00", "end": "2027-01-01T00:00:00" }
+		},
+		{
+			"name": "alignment and startAt combine: the month starting on the 1st at 06:00",
+			"note": "Snap to the unit boundary FIRST, then apply the time of day. Snapping afterwards would move the boundary to whichever day startAt last occurred on.",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "month" },
+				"anchor": "previous",
+				"startAt": { "hour": 6, "minute": 0 },
+				"align": true
+			},
+			"expect": { "start": "2026-03-01T06:00:00", "end": "2026-04-01T06:00:00" }
+		},
+		{
+			"name": "an aligned boundary still ahead of now belongs to the period that has not begun",
+			"note": "The 1st at 03:00 with an 06:00 month start: the month underway began on 1 March, not 1 April.",
+			"now": "2026-04-01T03:00:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "month" },
+				"anchor": "current",
+				"startAt": { "hour": 6, "minute": 0 },
+				"align": true
+			},
+			"expect": { "start": "2026-03-01T06:00:00", "end": "2026-04-01T06:00:00" }
+		},
+		{
+			"name": "unaligned current month stays rolling, as XLReporter defines it",
+			"note": "Kept alongside the aligned case on purpose: both behaviours are correct and the flag is what chooses between them.",
+			"now": "2026-04-12T10:30:00",
+			"clampEndToNow": false,
+			"period": {
+				"kind": "relative",
+				"duration": { "count": 1, "unit": "month" },
+				"anchor": "current"
+			},
+			"expect": { "start": "2026-04-12T10:30:00", "end": "2026-05-12T10:30:00" }
+		},
+		{
 			"name": "absolute periods pass through untouched",
 			"now": "2026-04-12T10:00:00",
 			"clampEndToNow": false,

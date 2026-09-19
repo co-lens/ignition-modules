@@ -32,11 +32,20 @@ data class TimeOfDay(val hour: Int, val minute: Int) {
 enum class PeriodAnchor { CURRENT, PREVIOUS }
 
 sealed interface Period {
-    /** Anchored to the current or previous whole unit, optionally snapped to a time of day. */
+    /**
+     * Anchored to the current or previous unit, optionally snapped to a time of day.
+     *
+     * [align] decides whether the unit is CALENDAR or ROLLING, and the difference is the whole
+     * point of the flag. Unaligned reproduces XLReporter's Relative type exactly: "current month"
+     * on 12 April runs 12 April to 12 May. Aligned, the same settings give month-to-date, and
+     * `previous` gives the whole previous calendar month — the periods reports are actually
+     * written against, which XLReporter reaches only through its separate Endpoint type.
+     */
     data class Relative(
         val duration: Duration,
         val anchor: PeriodAnchor,
         val startAt: TimeOfDay? = null,
+        val align: Boolean = false,
     ) : Period
 
     /** Relative, shifted back by a further duration — "the day before yesterday". */
@@ -45,6 +54,7 @@ sealed interface Period {
         val anchor: PeriodAnchor,
         val offset: Duration,
         val startAt: TimeOfDay? = null,
+        val align: Boolean = false,
     ) : Period
 
     /** Both ends pinned, for a one-off report. Local wall-clock, no offset. */

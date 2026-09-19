@@ -56,13 +56,15 @@ private fun parsePeriod(json: JsonObject): Period {
 
     fun anchor(): PeriodAnchor = PeriodAnchor.valueOf(json.get("anchor").asString.uppercase())
 
+    fun align(): Boolean = json.get("align")?.asBoolean ?: false
+
     fun startAt(): TimeOfDay? = json.getAsJsonObject("startAt")?.let {
         TimeOfDay(it.get("hour").asInt, it.get("minute").asInt)
     }
 
     return when (val kind = json.get("kind").asString) {
-        "relative" -> Period.Relative(duration("duration"), anchor(), startAt())
-        "offset" -> Period.Offset(duration("duration"), anchor(), duration("offset"), startAt())
+        "relative" -> Period.Relative(duration("duration"), anchor(), startAt(), align())
+        "offset" -> Period.Offset(duration("duration"), anchor(), duration("offset"), startAt(), align())
         "absolute" -> Period.Absolute(json.get("start").asString, json.get("end").asString)
         "variable" -> Period.Variable(json.get("startVariable").asString, json.get("endVariable").asString)
         else -> error("Unknown period kind '$kind' in the fixture.")

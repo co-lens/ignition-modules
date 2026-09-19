@@ -75,6 +75,7 @@ object DataGroupCodec {
             duration = readDuration(json.requireObject("duration")),
             anchor = readAnchor(json),
             startAt = readTimeOfDay(json.getAsJsonObject("startAt")),
+            align = json.bool("align"),
         )
 
         "offset" -> Period.Offset(
@@ -82,6 +83,7 @@ object DataGroupCodec {
             anchor = readAnchor(json),
             offset = readDuration(json.requireObject("offset")),
             startAt = readTimeOfDay(json.getAsJsonObject("startAt")),
+            align = json.bool("align"),
         )
 
         "absolute" -> Period.Absolute(
@@ -133,6 +135,9 @@ object DataGroupCodec {
             throw MalformedGroup("startAt is not a valid time of day: ${e.message}")
         }
     }
+
+    private fun JsonObject.bool(name: String): Boolean =
+        get(name)?.takeIf { !it.isJsonNull }?.asBoolean ?: false
 
     private fun JsonObject.str(name: String): String? =
         get(name)?.takeIf { !it.isJsonNull }?.asString?.takeIf { it.isNotBlank() }

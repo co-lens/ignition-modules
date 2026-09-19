@@ -1,9 +1,11 @@
 package io.colens.report.common
 
+import java.time.DayOfWeek
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 
 /**
  * Resolves a [Period] against a wall-clock instant.
@@ -72,12 +74,12 @@ object PeriodResolver {
         )
 
         is Period.Relative -> {
-            val start = relativeStart(period.duration, period.anchor, period.startAt, now)
+            val start = relativeStart(period.duration, period.anchor, period.startAt, period.align, now)
             Resolved(start, start.plus(period.duration))
         }
 
         is Period.Offset -> {
-            val base = relativeStart(period.duration, period.anchor, period.startAt, now)
+            val base = relativeStart(period.duration, period.anchor, period.startAt, period.align, now)
             val start = base.minus(period.offset)
             Resolved(start, start.plus(period.duration))
         }
@@ -96,17 +98,58 @@ object PeriodResolver {
         duration: Duration,
         anchor: PeriodAnchor,
         startAt: TimeOfDay?,
+        align: Boolean,
         now: ZonedDateTime,
     ): ZonedDateTime {
+        /*
+         * Aligned: snap to the unit boundary FIRST, then apply the time of day. That ordering is
+         * what lets "the month starting on the 1st at 06:00" be said at all — snapping afterwards
+         * would move the boundary to whichever day startAt last occurred on.
+         */
+        if (align) {
+            var current = startOfUnit(now, duration.unit)
+            if (startAt != null) current = current.withTimeOfDay(startAt)
+
+            // A boundary still ahead of now belongs to the period that has not begun: on the 1st
+            // at 03:00 with an 06:00 start, the month underway began last month.
+            if (current.isAfter(now)) current = current.minus(duration)
+
+            return if (anchor == PeriodAnchor.CURRENT) current else current.minus(duration)
+        }
+
         if (startAt == null) {
             return if (anchor == PeriodAnchor.CURRENT) now else now.minus(duration)
         }
 
-        val candidate = now.withHour(startAt.hour).withMinute(startAt.minute).withSecond(0).withNano(0)
+        val candidate = now.withTimeOfDay(startAt)
         val current = if (candidate.isAfter(now)) candidate.minus(duration) else candidate
 
         return if (anchor == PeriodAnchor.CURRENT) current else current.minus(duration)
     }
+
+    /**
+     * The start of the calendar unit containing [at].
+     *
+     * WEEK uses Monday, following ISO 8601 — a real choice rather than an obvious one, since plenty
+     * of places treat Sunday as the first day. It is pinned by a golden case rather than left to
+     * whatever the platform's locale happens to say.
+     */
+    private fun startOfUnit(at: ZonedDateTime, unit: DurationUnit): ZonedDateTime {
+        val midnight = at.truncatedTo(ChronoUnit.DAYS)
+        return when (unit) {
+            DurationUnit.MINUTE -> at.truncatedTo(ChronoUnit.MINUTES)
+            DurationUnit.HOUR -> at.truncatedTo(ChronoUnit.HOURS)
+            DurationUnit.DAY -> midnight
+            DurationUnit.WEEK -> midnight.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            DurationUnit.MONTH -> midnight.withDayOfMonth(1)
+            DurationUnit.QUARTER -> midnight.withDayOfMonth(1)
+                .withMonth(((at.monthValue - 1) / 3) * 3 + 1)
+            DurationUnit.YEAR -> midnight.withDayOfYear(1)
+        }
+    }
+
+    private fun ZonedDateTime.withTimeOfDay(time: TimeOfDay): ZonedDateTime =
+        withHour(time.hour).withMinute(time.minute).withSecond(0).withNano(0)
 
     private fun parseLocal(text: String?, zone: ZoneId, what: String): ZonedDateTime {
         if (text.isNullOrBlank()) throw UnresolvablePeriod("No value supplied for $what.")
