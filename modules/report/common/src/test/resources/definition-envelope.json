@@ -1,0 +1,54 @@
+{
+	"$comment": [
+		"Golden cases for the workbook definition envelope, shared BYTE-IDENTICALLY by the add-in's",
+		"Vitest suite and the gateway module's kotest suite.",
+		"",
+		"The add-in writes this into a workbook's custom XML part; Apache POI reads it back on the",
+		"gateway when a schedule fires, with no Excel running. The two never meet, so nothing catches",
+		"a disagreement about the exact bytes except this file.",
+		"",
+		"`encoded` is what encode(json) must produce, character for character. Every case must also",
+		"round-trip: decode(encode(json)) == json."
+	],
+	"namespace": "urn:colens:ignition-report:1",
+	"schemaVersion": 1,
+	"cases": [
+		{
+			"name": "an empty object",
+			"json": "{}",
+			"encoded": "<report xmlns=\"urn:colens:ignition-report:1\" v=\"1\"><![CDATA[{}]]></report>"
+		},
+		{
+			"name": "an ordinary definition",
+			"json": "{\"schemaVersion\":1,\"groups\":[]}",
+			"encoded": "<report xmlns=\"urn:colens:ignition-report:1\" v=\"1\"><![CDATA[{\"schemaVersion\":1,\"groups\":[]}]]></report>"
+		},
+		{
+			"name": "a payload containing the CDATA terminator is split across two sections",
+			"note": "A tag named foo]]>bar is absurd but possible, and a naive encoder closes the section early and silently truncates the rest — a corrupt workbook rather than an error.",
+			"json": "{\"name\":\"foo]]>bar\"}",
+			"encoded": "<report xmlns=\"urn:colens:ignition-report:1\" v=\"1\"><![CDATA[{\"name\":\"foo]]]]><![CDATA[>bar\"}]]></report>"
+		},
+		{
+			"name": "two terminators in one payload",
+			"json": "{\"a\":\"]]>\",\"b\":\"]]>\"}",
+			"encoded": "<report xmlns=\"urn:colens:ignition-report:1\" v=\"1\"><![CDATA[{\"a\":\"]]]]><![CDATA[>\",\"b\":\"]]]]><![CDATA[>\"}]]></report>"
+		},
+		{
+			"name": "XML metacharacters pass through untouched inside CDATA",
+			"note": "The point of CDATA: no entity escaping, so the JSON is byte-identical on both sides.",
+			"json": "{\"expr\":\"a < b && c > d\",\"quote\":\"\\\"x\\\"\"}",
+			"encoded": "<report xmlns=\"urn:colens:ignition-report:1\" v=\"1\"><![CDATA[{\"expr\":\"a < b && c > d\",\"quote\":\"\\\"x\\\"\"}]]></report>"
+		},
+		{
+			"name": "a tag path with unicode",
+			"json": "{\"path\":\"Ligne1/Température\"}",
+			"encoded": "<report xmlns=\"urn:colens:ignition-report:1\" v=\"1\"><![CDATA[{\"path\":\"Ligne1/Température\"}]]></report>"
+		}
+	],
+	"notOurs": [
+		"<other xmlns=\"urn:example:other\"><![CDATA[{}]]></other>",
+		"<report><![CDATA[{}]]></report>",
+		"not xml at all"
+	]
+}
