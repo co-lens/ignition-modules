@@ -117,7 +117,7 @@ jobs:
       # on its own — one must be present. This satisfies both the Gradle daemon and the
       # subprojects' `languageVersion = 17` request.
       - name: Set up JDK 17
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
@@ -127,7 +127,7 @@ jobs:
       # produces a signed artifact that ships to operators, and a warm cache is one more input to
       # its supply chain in exchange for about ninety seconds.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           validate-wrappers: true
           cache-disabled: true
@@ -257,7 +257,7 @@ jobs:
       # evidence when the verification step fails.
       - name: Upload the module as a job artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Ignition-MCP-${{ steps.v.outputs.version }}
           path: dist/
